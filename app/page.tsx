@@ -8,9 +8,9 @@ import { difficultyPoints, type Player, type Room } from '@/lib/types'
 import { generatePlayerId } from '@/lib/utils'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 
-export default function PlayerPage() {
+function PlayerPageContent() {
   const searchParams = useSearchParams()
   const [room, setRoom] = useState<Room | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
@@ -451,6 +451,21 @@ export default function PlayerPage() {
         </footer>
       </div>
     </div>
+  )
+}
+
+export default function PlayerPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-white/70">Loading...</p>
+        </div>
+      </div>
+    }>
+      <PlayerPageContent />
+    </Suspense>
   )
 }
 
