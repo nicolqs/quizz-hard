@@ -2,12 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-50;
+  }
+}
+
 :root {
+  --primary: 139 92 246;
+  --secondary: 236 72 153;
+  --danger: 239 68 68;
   font-family: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-body {
-  margin: 0;
+@layer utilities {
+  .text-primary {
+    @apply text-violet-400;
+  }
+  .bg-primary {
+    @apply bg-violet-500;
+  }
+  .text-secondary {
+    @apply text-pink-400;
+  }
+  .bg-secondary {
+    @apply bg-pink-500;
+  }
+  .text-danger {
+    @apply text-red-500;
+  }
 }
 
 .glass {
