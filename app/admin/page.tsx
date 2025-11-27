@@ -1,11 +1,14 @@
 'use client'
 
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { SectionCard } from '@/components/SectionCard'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
 import { fetchQuestionsFromChatGPT } from '@/lib/questions'
 import { saveRoomToStorage } from '@/lib/storage'
-import { difficultyPoints, themes, type Difficulty, type Player, type Room } from '@/lib/types'
+import { aiModels, DEFAULT_AI_MODEL, difficultyPoints, gameModes, themes, type Difficulty, type GameMode, type Player, type Room } from '@/lib/types'
 import { generatePlayerId, generateRoomCode } from '@/lib/utils'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -17,9 +20,14 @@ export default function AdminPage() {
   const [loadingQuestions, setLoadingQuestions] = useState(false)
   const [shareLink, setShareLink] = useState<string>('')
   const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const [hostName, setHostName] = useState('Nico')
+  const [gameMode, setGameMode] = useState<GameMode>('standard')
   const [theme, setTheme] = useState(themes[0])
+  const [customTheme, setCustomTheme] = useState('')
+  const [generateAITheme, setGenerateAITheme] = useState(false)
+  const [aiModel, setAiModel] = useState(DEFAULT_AI_MODEL) // Fast & cheap default
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [questionCount, setQuestionCount] = useState(8)
   const [timePerQuestion, setTimePerQuestion] = useState(8)
@@ -53,10 +61,23 @@ export default function AdminPage() {
       name: hostName || 'Host',
       score: 0,
     }
+    
+    // Determine theme based on game mode
+    let finalTheme = theme
+    if (gameMode === 'custom') {
+      finalTheme = customTheme || 'Custom Trivia'
+    } else if (gameMode === 'emoji') {
+      finalTheme = 'Emoji Decoder'
+    } else if (gameMode === 'personality') {
+      finalTheme = 'Personality Mode'
+    }
+    
     const newRoom: Room = {
       code,
       hostName: hostName || 'Host',
-      theme,
+      gameMode,
+      theme: finalTheme,
+      aiModel,
       difficulty,
       questionCount,
       timePerQuestion,
@@ -71,17 +92,8 @@ export default function AdminPage() {
     setRoom(newRoom)
     setSessionPlayerId(player.id)
     
-    // Generate share link
-    const roomConfig = {
-      code,
-      hostName: hostName || 'Host',
-      theme,
-      difficulty,
-      questionCount,
-      timePerQuestion,
-    }
-    const encoded = btoa(JSON.stringify(roomConfig))
-    const link = `${window.location.origin}/?room=${encoded}`
+    // Generate simple share link with just room code
+    const link = `${window.location.origin}/?code=${code}`
     setShareLink(link)
     navigator.clipboard.writeText(link).then(() => {
       setCopied(true)
@@ -91,12 +103,36 @@ export default function AdminPage() {
 
   const startGame = async () => {
     if (!room) return
-    setLoadingQuestions(true)
-    const questions = await fetchQuestionsFromChatGPT(room.theme, room.difficulty, room.questionCount)
-    setLoadingQuestions(false)
-    const updatedRoom: Room = {
+    
+    // Set status to 'generating' so players see the loading state
+    const generatingRoom: Room = {
       ...room,
-      questions,
+      status: 'generating',
+    }
+    await saveRoomToStorage(generatingRoom)
+    setRoom(generatingRoom)
+    setLoadingQuestions(true)
+    
+    // Fetch questions from AI
+    const playerNames = room.gameMode === 'personality' ? room.players.map(p => p.name) : undefined
+    const shouldGenerateTheme = room.gameMode === 'custom' && generateAITheme
+    
+    const result = await fetchQuestionsFromChatGPT(
+      room.theme, 
+      room.difficulty, 
+      room.questionCount, 
+      room.aiModel, 
+      playerNames,
+      shouldGenerateTheme,
+      room.gameMode
+    )
+    setLoadingQuestions(false)
+    
+    // Start the game
+    const updatedRoom: Room = {
+      ...generatingRoom,
+      questions: result.questions,
+      generatedTheme: result.generatedTheme,
       currentIndex: 0,
       status: 'question',
       responses: {},
@@ -194,6 +230,7 @@ export default function AdminPage() {
   }
 
   const inLobby = room && room.status === 'lobby'
+  const inGenerating = room && room.status === 'generating'
   const inQuestion = room && room.status === 'question'
   const inResults = room && (room.status === 'results' || room.status === 'final')
 
@@ -234,18 +271,200 @@ export default function AdminPage() {
   }, [room?.code])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#312e81,_#0f172a_45%,_#020617)] text-slate-50">
+    <div className="min-h-screen">
+      {/* Hamburger Menu Overlay */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          <div className="relative z-10 w-full max-w-md overflow-y-auto bg-slate-900/95 p-6 shadow-2xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Room Setup</h2>
+              <button
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="grid gap-4">
+              <div>
+                <label className="text-sm text-slate-300">Your name</label>
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  value={hostName}
+                  onChange={(e) => setHostName(e.target.value)}
+                  placeholder="Admin name"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 font-semibold">Game Mode</label>
+                <div className="mt-2 grid gap-2">
+                  {gameModes.map((mode) => (
+                    <button
+                      key={mode.id}
+                      onClick={() => setGameMode(mode.id as GameMode)}
+                      className={`rounded-lg border p-3 text-left transition ${
+                        gameMode === mode.id
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-white/10 bg-white/5 hover:border-primary/40'
+                      }`}
+                    >
+                      <div className="font-semibold">{mode.name}</div>
+                      <div className="text-xs text-white/60">{mode.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {gameMode === 'standard' && (
+                <div>
+                  <label className="text-sm text-slate-300">Theme</label>
+                  <select
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                  >
+                    {themes.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {gameMode === 'custom' && (
+                <div>
+                  <label className="text-sm text-slate-300">Custom Theme</label>
+                  <input
+                    type="text"
+                    value={customTheme}
+                    onChange={(e) => setCustomTheme(e.target.value)}
+                    placeholder="e.g., 'Trivia from the year 2000'"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  />
+                  <label className="mt-2 flex items-center gap-2 text-sm text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={generateAITheme}
+                      onChange={(e) => setGenerateAITheme(e.target.checked)}
+                      className="rounded border-white/10"
+                    />
+                    Let AI generate a surprise theme
+                  </label>
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm text-slate-300">AI Model</label>
+                <select
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                >
+                  {aiModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name} - {model.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300">Difficulty</label>
+                <div className="mt-1 grid grid-cols-4 gap-2 text-center text-xs font-semibold">
+                  {(['easy', 'medium', 'hard', 'impossible'] as Difficulty[]).map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setDifficulty(d)}
+                      className={`rounded-lg px-2 py-2 capitalize transition ${
+                        difficulty === d
+                          ? 'bg-primary text-white shadow'
+                          : 'bg-white/5 text-white/70 hover:bg-white/10'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm text-slate-300">Questions</label>
+                  <input
+                    type="number"
+                    min={3}
+                    max={15}
+                    value={questionCount}
+                    onChange={(e) => setQuestionCount(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-300">Time (s)</label>
+                  <input
+                    type="number"
+                    min={8}
+                    max={45}
+                    value={timePerQuestion}
+                    onChange={(e) => setTimePerQuestion(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              {room && (
+                <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-4">
+                  <p className="text-sm text-secondary">Room already created: <span className="font-bold">{room.code}</span></p>
+                </div>
+              )}
+
+              {room && (
+                <button
+                  onClick={() => {
+                    if (confirm('Are you sure you want to create a new room? The current room will be replaced.')) {
+                      setRoom(null)
+                      setSessionPlayerId(null)
+                      setShareLink('')
+                      setMenuOpen(false)
+                    }
+                  }}
+                  className="mt-4 w-full rounded-xl border-2 border-danger/50 bg-danger/10 px-4 py-3 text-lg font-semibold text-danger transition hover:bg-danger/20"
+                >
+                  Create New Room
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:py-12">
         <header className="flex items-center justify-between gap-4">
-          <div>
+          <Link href="/" className="hover:opacity-80 transition-opacity">
             <p className="text-xs uppercase tracking-[0.4em] text-primary/80">Party Quiz</p>
             <h1 className="text-3xl font-bold sm:text-4xl">Nix Games</h1>
-            <p className="text-sm text-slate-300">Jackbox-style room play with AI-authored trivia.</p>
+            {/* <p className="text-sm text-slate-300">Jackbox-style room play with AI-authored trivia.</p> */}
+          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="rounded-lg p-2 hover:bg-white/10"
+              title="Room Settings"
+            >
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
-          <div className="hidden text-sm text-white/70 sm:block">Admin Panel</div>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        {/* Initial Room Creation */}
+        {!room && (
           <SectionCard title="Host setup">
             <div className="grid gap-3">
               <label className="text-sm text-slate-300">Your name</label>
@@ -256,14 +475,71 @@ export default function AdminPage() {
                 placeholder="Admin name"
               />
 
-              <label className="text-sm text-slate-300">Theme</label>
+              <label className="text-sm text-slate-300 font-semibold">Game Mode</label>
+              <div className="grid gap-2">
+                {gameModes.map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setGameMode(mode.id as GameMode)}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      gameMode === mode.id
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-white/10 bg-white/5 hover:border-primary/40'
+                    }`}
+                  >
+                    <div className="font-semibold">{mode.name}</div>
+                    <div className="text-xs text-white/60">{mode.description}</div>
+                  </button>
+                ))}
+              </div>
+
+              {gameMode === 'standard' && (
+                <>
+                  <label className="text-sm text-slate-300">Theme</label>
+                  <select
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                  >
+                    {themes.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {gameMode === 'custom' && (
+                <>
+                  <label className="text-sm text-slate-300">Custom Theme</label>
+                  <input
+                    type="text"
+                    value={customTheme}
+                    onChange={(e) => setCustomTheme(e.target.value)}
+                    placeholder="e.g., 'Trivia from the year 2000'"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                  />
+                  <label className="flex items-center gap-2 text-sm text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={generateAITheme}
+                      onChange={(e) => setGenerateAITheme(e.target.checked)}
+                      className="rounded border-white/10"
+                    />
+                    Let AI generate a surprise theme
+                  </label>
+                </>
+              )}
+
+              <label className="text-sm text-slate-300">AI Model</label>
               <select
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
               >
-                {themes.map((t) => (
-                  <option key={t}>{t}</option>
+                {aiModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} - {model.description}
+                  </option>
                 ))}
               </select>
 
@@ -312,14 +588,16 @@ export default function AdminPage() {
               <button
                 className="mt-2 w-full rounded-xl bg-gradient-to-r from-primary to-secondary px-4 py-3 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01]"
                 onClick={createRoom}
-                disabled={!!room}
               >
-                {room ? 'Room Created' : 'Generate Room'}
+                Generate Room
               </button>
             </div>
           </SectionCard>
+        )}
 
-          {room && (
+        {/* Lobby View - After Room Created */}
+        {room && inLobby && (
+          <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard title="Lobby" accent="from-secondary/20 to-primary/10">
               <div className="flex flex-col gap-3 text-sm">
                 <div className="flex items-center justify-between">
@@ -353,9 +631,7 @@ export default function AdminPage() {
                 </button>
               </div>
             </SectionCard>
-          )}
 
-          {room && (
             <SectionCard title="Share with players" accent="from-primary/20 to-secondary/30">
               <p className="text-sm text-white/70">Share this link with players to join automatically.</p>
               <div className="mt-3 grid gap-2">
@@ -378,46 +654,84 @@ export default function AdminPage() {
                 </div>
               </div>
             </SectionCard>
-          )}
-        </div>
+          </div>
+        )}
 
-        {room && inQuestion && currentQuestion && (
-          <SectionCard title={`Question ${room.currentIndex + 1} / ${room.questions.length}`} accent="from-primary/30 to-secondary/30">
-            <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
-              <div className="space-y-4">
-                <h2 className="text-2xl font-semibold leading-tight">{currentQuestion.question}</h2>
-                <div className="grid gap-2">
-                  {currentQuestion.choices.map((choice, idx) => {
-                    const selected = sessionPlayerId && room.responses[sessionPlayerId]?.answerIndex === idx
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => selectAnswer(idx)}
-                        disabled={timeLeft <= 0}
-                        className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
-                          selected
-                            ? 'border-secondary bg-secondary/20 text-secondary'
-                            : 'border-white/10 bg-white/5 hover:border-primary/40'
-                        } ${timeLeft <= 0 ? 'opacity-50' : ''}`}
-                      >
-                        <span>{choice}</span>
-                        {selected && <span className="text-xs">Locked in</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-3 rounded-xl bg-white/5 p-4">
-                <div className="text-sm uppercase tracking-[0.3em] text-white/60">Countdown</div>
-                <div className="rounded-lg bg-black/40 px-4 py-3">
-                  <span className="text-4xl font-bold text-secondary">{timeLeft}s</span>
-                </div>
-              </div>
+        {/* Generating Questions View */}
+        {room && inGenerating && (
+          <SectionCard title="🤖 AI Working..." accent="from-primary/30 to-secondary/30">
+            <LoadingSpinner 
+              message="Summoning AI questions…"
+              subMessage={`Generating ${room.questionCount} ${room.difficulty} questions about ${room.generatedTheme || room.theme}`}
+            />
+            <div className="mt-4 text-center">
+              <p className="text-sm text-white/60 light:text-black/60">⏱️ Takes about ~10 seconds</p>
+              <p className="text-xs text-white/50 light:text-black/50 mt-1">Your players see this too!</p>
             </div>
           </SectionCard>
         )}
 
+        {/* Question View - Gameplay at Top */}
+        {room && inQuestion && currentQuestion && (
+          <>
+            <SectionCard title={`Question ${room.currentIndex + 1} / ${room.questions.length}`} accent="from-primary/30 to-secondary/30">
+              <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
+                <div className="space-y-4">
+                  <h2 className="text-2xl font-semibold leading-tight">{currentQuestion.question}</h2>
+                  <div className="grid gap-2">
+                    {currentQuestion.choices.map((choice, idx) => {
+                      const selected = sessionPlayerId && room.responses[sessionPlayerId]?.answerIndex === idx
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => selectAnswer(idx)}
+                          disabled={timeLeft <= 0}
+                          className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+                            selected
+                              ? 'border-secondary bg-secondary/20 text-secondary'
+                              : 'border-white/10 bg-white/5 hover:border-primary/40'
+                          } ${timeLeft <= 0 ? 'opacity-50' : ''}`}
+                        >
+                          <span>{choice}</span>
+                          {selected && <span className="text-xs">Locked in</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl bg-white/5 p-4">
+                  <div className="text-sm uppercase tracking-[0.3em] text-white/60">Countdown</div>
+                  <div className="rounded-lg bg-black/40 px-4 py-3">
+                    <span className="text-4xl font-bold text-secondary">{timeLeft}s</span>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            {/* Live Leaderboard at Bottom During Questions */}
+            <SectionCard title="Live standings" accent="from-secondary/20 to-primary/20">
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                {sortedLeaderboard.map((p, idx) => (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-2 ${
+                      idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-white/50">#{idx + 1}</span>
+                      <span className="font-semibold text-sm">{p.name}</span>
+                    </div>
+                    <div className="text-sm font-semibold">{p.score} pts</div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          </>
+        )}
+
+        {/* Results View */}
         {room && inResults && currentQuestion && (
           <SectionCard
             title={room.status === 'final' ? 'Final Leaderboard' : 'Round results'}

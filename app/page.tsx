@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
-import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
-import { difficultyPoints, type Room, type Player, type Question } from '@/lib/types'
+import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
+import { difficultyPoints, type Player, type Room } from '@/lib/types'
 import { generatePlayerId } from '@/lib/utils'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 
 export default function PlayerPage() {
   const searchParams = useSearchParams()
@@ -14,6 +16,7 @@ export default function PlayerPage() {
   const [timeLeft, setTimeLeft] = useState(0)
   const [sessionPlayerId, setSessionPlayerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loadingProgress, setLoadingProgress] = useState(0)
   
   const [joinCode, setJoinCode] = useState('')
   const [joinName, setJoinName] = useState('')
@@ -40,7 +43,9 @@ export default function PlayerPage() {
             foundRoom = {
               code,
               hostName: roomConfig.hostName,
+              gameMode: roomConfig.gameMode || 'standard',
               theme: roomConfig.theme,
+              aiModel: roomConfig.aiModel || 'gpt-4o-mini',
               difficulty: roomConfig.difficulty,
               questionCount: roomConfig.questionCount,
               timePerQuestion: roomConfig.timePerQuestion,
@@ -85,6 +90,31 @@ export default function PlayerPage() {
     }
   }, [room?.status, room?.currentIndex, room?.timePerQuestion])
 
+  // Loading progress bar animation (10 seconds)
+  useEffect(() => {
+    if (room?.status === 'generating') {
+      console.log('[🟢 PLAYER] 📊 Starting progress bar animation!')
+      setLoadingProgress(0)
+      const startTime = Date.now()
+      const duration = 10000 // 10 seconds
+      
+      const ticker = setInterval(() => {
+        const elapsed = Date.now() - startTime
+        const progress = Math.min((elapsed / duration) * 100, 100)
+        setLoadingProgress(progress)
+        console.log('[🟢 PLAYER] Progress:', Math.round(progress) + '%')
+        
+        if (progress >= 100) {
+          clearInterval(ticker)
+        }
+      }, 100) // Update every 100ms for smooth animation
+      
+      return () => clearInterval(ticker)
+    } else {
+      setLoadingProgress(0)
+    }
+  }, [room?.status])
+
   const joinRoom = async () => {
     console.log('[🟢 PLAYER] 🚪 Attempting to join room...')
     const code = joinCode.trim().toUpperCase()
@@ -102,7 +132,9 @@ export default function PlayerPage() {
             foundRoom = {
               code,
               hostName: roomConfig.hostName,
+              gameMode: roomConfig.gameMode || 'standard',
               theme: roomConfig.theme,
+              aiModel: roomConfig.aiModel || 'gpt-4o-mini',
               difficulty: roomConfig.difficulty,
               questionCount: roomConfig.questionCount,
               timePerQuestion: roomConfig.timePerQuestion,
@@ -164,6 +196,11 @@ export default function PlayerPage() {
   }
 
   const inLobby = room && room.status === 'lobby'
+  const inGenerating = room && room.status === 'generating'
+  
+  useEffect(() => {
+    console.log('[🟢 PLAYER] Room status:', room?.status, 'inGenerating:', inGenerating)
+  }, [room?.status, inGenerating])
   const inQuestion = room && room.status === 'question'
   const inResults = room && (room.status === 'results' || room.status === 'final')
 
@@ -204,16 +241,18 @@ export default function PlayerPage() {
   }, [room?.code])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#312e81,_#0f172a_45%,_#020617)] text-slate-50">
+    <div className="min-h-screen">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:py-12">
         <header className="flex items-center justify-between gap-4">
-          <div>
+          <Link href="/" className="hover:opacity-80 transition-opacity">
             <p className="text-xs uppercase tracking-[0.4em] text-primary/80">Party Quiz</p>
             <h1 className="text-3xl font-bold sm:text-4xl">Nix Games</h1>
-            <p className="text-sm text-slate-300">Jackbox-style room play with AI-authored trivia.</p>
-          </div>
+            {/* <p className="text-sm text-slate-300">Jackbox-style room play with AI-authored trivia.</p> */}
+          </Link>
+          <ThemeToggle />
         </header>
 
+        {/* Show Join a Lobby form when not joined yet */}
         {!sessionPlayerId && (
           <SectionCard title="Join a lobby" accent="from-secondary/20 to-primary/20">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -238,10 +277,52 @@ export default function PlayerPage() {
             </div>
             {error && <p className="mt-2 text-sm text-danger">{error}</p>}
             {room && !sessionPlayerId && (
-              <div className="mt-3 text-sm text-white/70">
+              <div className="mt-3 text-sm text-white/70 light:text-black/70">
                 Found room: <span className="font-semibold">{room.code}</span> • Host {room.hostName}
               </div>
             )}
+          </SectionCard>
+        )}
+
+        {/* DEBUG: Show room status */}
+        {room && (
+          <div className="fixed bottom-4 right-4 bg-black/80 text-white p-2 rounded text-xs">
+            Status: {room.status} | Progress: {Math.round(loadingProgress)}%
+          </div>
+        )}
+
+        {/* Generating Questions View */}
+        {room && inGenerating && (
+          <SectionCard title="🎮 Get Ready!" accent="from-primary/30 to-secondary/30">
+            <div className="space-y-6">
+              <div className="text-center">
+                <h3 className="text-xl font-semibold text-white light:text-black mb-2">
+                  🔥 AI is cooking up some questions... 🔥
+                </h3>
+                <p className="text-sm text-white/70 light:text-black/70">
+                  {room.hostName} is generating {room.questionCount} {room.difficulty} questions about {room.generatedTheme || room.theme}
+                </p>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-2">
+                <div className="h-6 w-full rounded-full bg-white/10 overflow-hidden border-2 border-primary/30">
+                  <div
+                    className="h-full bg-gradient-to-r from-primary via-secondary to-primary bg-[length:200%_100%] animate-gradient transition-all duration-300 ease-out"
+                    style={{ width: `${loadingProgress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-lg font-bold text-primary">
+                  <span>Generating...</span>
+                  <span>{Math.round(loadingProgress)}%</span>
+                </div>
+              </div>
+
+              <div className="text-center space-y-1">
+                <p className="text-lg font-semibold text-white/80 light:text-black/80">✨ Takes about 10 seconds</p>
+                <p className="text-sm text-white/60 light:text-black/60">Stay sharp! Game starts soon...</p>
+              </div>
+            </div>
           </SectionCard>
         )}
 
@@ -344,7 +425,7 @@ export default function PlayerPage() {
               </div>
               <div className="rounded-lg bg-white/5 p-3 text-sm">
                 <div className="text-white/60">Theme</div>
-                <div className="text-lg font-semibold">{room.theme}</div>
+                <div className="text-lg font-semibold">{room.generatedTheme || room.theme}</div>
               </div>
               <div className="rounded-lg bg-white/5 p-3 text-sm">
                 <div className="text-white/60">Difficulty</div>
@@ -366,7 +447,7 @@ export default function PlayerPage() {
         )}
 
         <footer className="pb-8 text-center text-xs text-white/40">
-          © 2025 Built for fun — Why did the quiz break up with the answer? It couldn't find the right match! 🎯
+          © 2025 - Nico Vincent
         </footer>
       </div>
     </div>
