@@ -273,6 +273,48 @@ export default function AdminPage() {
     setTimeLeft(0)
   }
 
+  // Apply the menu's settings (mode, theme, difficulty, count, etc.) to the
+  // CURRENT room, keeping the same code + players + scores + askedQuestions.
+  // Forces the room back to lobby so the host can hit Start Game with the new
+  // config. Used when the host wants to switch game mode mid-session without
+  // making everyone rejoin.
+  const applySettingsToCurrentRoom = () => {
+    if (!room) return
+
+    // Resolve the displayed theme from the selected mode (same logic as createRoom).
+    let finalTheme = theme
+    if (gameMode === 'custom') {
+      finalTheme = customTheme || 'Custom Trivia'
+    } else if (gameMode === 'emoji') {
+      finalTheme = 'Emoji Decoder'
+    } else if (gameMode === 'personality') {
+      finalTheme = 'Personality Mode'
+    }
+
+    const updated: Room = {
+      ...room,
+      hostName: hostName || room.hostName,
+      gameMode,
+      theme: finalTheme,
+      generatedTheme: undefined, // forced re-gen if custom + AI surprise
+      aiModel,
+      difficulty,
+      questionCount,
+      timePerQuestion,
+      // Reset round state - new mode means new questions; keep askedQuestions
+      // so the new round still avoids any prior overlap.
+      currentIndex: 0,
+      questions: [],
+      status: 'lobby',
+      responses: {},
+      lastGain: {},
+    }
+    setRoom(updated)
+    saveRoomToStorage(updated).catch(console.error)
+    setTimeLeft(0)
+    setMenuOpen(false)
+  }
+
   const copyShareLink = () => {
     if (shareLink) {
       navigator.clipboard.writeText(shareLink).then(() => {
@@ -472,7 +514,17 @@ export default function AdminPage() {
               {room && (
                 <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-4">
                   <p className="text-sm text-secondary">Room already created: <span className="font-bold">{room.code}</span></p>
+                  <p className="mt-1 text-xs text-secondary/70">Apply settings below to keep the same code + players. Use "Create New Room" only to start fresh.</p>
                 </div>
+              )}
+
+              {room && (
+                <button
+                  onClick={applySettingsToCurrentRoom}
+                  className="mt-2 w-full rounded-xl bg-primary px-4 py-3 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01]"
+                >
+                  Apply settings to {room.code}
+                </button>
               )}
 
               {room && (
@@ -485,7 +537,7 @@ export default function AdminPage() {
                       setMenuOpen(false)
                     }
                   }}
-                  className="mt-4 w-full rounded-xl border-2 border-danger/50 bg-danger/10 px-4 py-3 text-lg font-semibold text-danger transition hover:bg-danger/20"
+                  className="mt-2 w-full rounded-xl border-2 border-danger/50 bg-danger/10 px-4 py-3 text-lg font-semibold text-danger transition hover:bg-danger/20"
                 >
                   Create New Room
                 </button>
