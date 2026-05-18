@@ -19,18 +19,23 @@ export async function GET(
         const frontendRoom = {
           code: room.code,
           hostName: room.host_name,
+          gameMode: room.game_mode || 'standard',
           theme: room.theme,
+          generatedTheme: room.generated_theme || undefined,
+          aiModel: room.ai_model || 'gpt-4o-mini',
           difficulty: room.difficulty,
           questionCount: room.question_count,
           timePerQuestion: room.time_per_question,
           players: room.players || [],
           questions: room.questions || [],
+          askedQuestions: room.asked_questions || [],
+          round: room.round ?? 0,
           currentIndex: room.current_index || 0,
           status: room.status,
           responses: room.responses || {},
           lastGain: room.last_gain || {},
         }
-        
+
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: 'update', room: frontendRoom })}\n\n`)
         )

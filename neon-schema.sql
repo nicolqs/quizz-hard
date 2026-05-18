@@ -5,14 +5,19 @@
 CREATE TABLE IF NOT EXISTS rooms (
   code TEXT PRIMARY KEY,
   host_name TEXT NOT NULL,
+  game_mode TEXT NOT NULL DEFAULT 'standard',
   theme TEXT NOT NULL,
+  generated_theme TEXT,
+  ai_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
   difficulty TEXT NOT NULL CHECK (difficulty IN ('easy', 'medium', 'hard', 'impossible')),
   question_count INTEGER NOT NULL,
   time_per_question INTEGER NOT NULL,
   players JSONB NOT NULL DEFAULT '[]'::jsonb,
   questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  asked_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  round INTEGER NOT NULL DEFAULT 0,
   current_index INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby', 'question', 'results', 'final')),
+  status TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby', 'generating', 'question', 'results', 'final')),
   responses JSONB NOT NULL DEFAULT '{}'::jsonb,
   last_gain JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -39,4 +44,3 @@ CREATE TRIGGER update_rooms_updated_at
   BEFORE UPDATE ON rooms
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
-

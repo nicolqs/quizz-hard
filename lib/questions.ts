@@ -1,6 +1,17 @@
 import type { Difficulty, GameMode, GenerateQuestionsResponse } from './types'
 
-// Client-side function to fetch questions from API
+export class GenerateQuestionsError extends Error {
+  code?: string
+  status?: number
+  constructor(message: string, opts?: { code?: string; status?: number }) {
+    super(message)
+    this.code = opts?.code
+    this.status = opts?.status
+  }
+}
+
+// Client-side function to fetch questions from API.
+// Throws GenerateQuestionsError on any failure - there is no static fallback.
 export async function fetchQuestionsFromChatGPT(
   theme: string,
   difficulty: Difficulty,
@@ -9,29 +20,41 @@ export async function fetchQuestionsFromChatGPT(
   playerNames?: string[],
   shouldGenerateTheme?: boolean,
   gameMode?: GameMode,
+  askedQuestions?: string[],
 ): Promise<GenerateQuestionsResponse> {
-  try {
-    console.log('[Questions] Requesting', count, difficulty, 'questions about', theme, 'using', aiModel, 'mode:', gameMode)
-    
-    const response = await fetch('/api/generate-questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme, difficulty, count, aiModel, playerNames, shouldGenerateTheme, gameMode }),
-    })
+  console.log('[Questions] Requesting', count, difficulty, 'questions about', theme, 'using', aiModel, 'mode:', gameMode, '| avoid:', (askedQuestions || []).length)
 
-    if (!response.ok) {
-      throw new Error('Failed to generate questions')
-    }
+  const response = await fetch('/api/generate-questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      theme,
+      difficulty,
+      count,
+      aiModel,
+      playerNames,
+      shouldGenerateTheme,
+      gameMode,
+      askedQuestions: askedQuestions || [],
+    }),
+  })
 
-    const data = await response.json()
-    console.log('[Questions] Received', data.questions.length, 'questions')
-    if (data.generatedTheme) {
-      console.log('[Questions] Generated theme:', data.generatedTheme)
+  if (!response.ok) {
+    let body: { error?: string; code?: string } = {}
+    try {
+      body = await response.json()
+    } catch {
+      /* non-JSON error body */
     }
-    return data
-  } catch (err) {
-    console.error('[Questions] Error fetching questions:', err)
-    // Return empty array on error - caller should handle this
-    throw err
+    const msg = body.error || `Failed to generate questions (HTTP ${response.status})`
+    console.error('[Questions] API error:', msg)
+    throw new GenerateQuestionsError(msg, { code: body.code, status: response.status })
   }
+
+  const data = (await response.json()) as GenerateQuestionsResponse
+  console.log('[Questions] Received', data.questions.length, 'questions')
+  if (data.generatedTheme) {
+    console.log('[Questions] Generated theme:', data.generatedTheme)
+  }
+  return data
 }

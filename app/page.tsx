@@ -383,7 +383,9 @@ function PlayerPageContent() {
                 {playerResult && (
                   <div className="rounded-xl bg-black/50 p-4">
                     <p className="text-sm text-white/70">
-                      You were {playerResult.wasCorrect ? 'correct 🎉' : 'wrong 😅'}
+                      {room.gameMode === 'personality'
+                        ? (playerResult.wasCorrect ? 'You voted with the majority 🙌' : 'You voted differently 🤷')
+                        : (playerResult.wasCorrect ? 'You were correct 🎉' : 'You were wrong 😅')}
                     </p>
                     <p className="text-lg font-semibold text-secondary">+{playerResult.gain} pts</p>
                     <p className="text-sm text-white/60">
@@ -447,7 +449,7 @@ function PlayerPageContent() {
         )}
 
         <footer className="pb-8 text-center text-xs text-white/40">
-          © 2025 - Nico Vincent
+          © {new Date().getFullYear()} - Nico Vincent
         </footer>
       </div>
     </div>

@@ -21,6 +21,7 @@ export default function AdminPage() {
   const [shareLink, setShareLink] = useState<string>('')
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [generationError, setGenerationError] = useState<string | null>(null)
 
   const [hostName, setHostName] = useState('Nico')
   const [gameMode, setGameMode] = useState<GameMode>('standard')
@@ -103,43 +104,61 @@ export default function AdminPage() {
 
   const startGame = async () => {
     if (!room) return
-    
+
+    setGenerationError(null)
+
     // Set status to 'generating' so players see the loading state
     const generatingRoom: Room = {
       ...room,
       status: 'generating',
+      round: (room.round ?? 0) + 1,
     }
     await saveRoomToStorage(generatingRoom)
     setRoom(generatingRoom)
     setLoadingQuestions(true)
-    
+
     // Fetch questions from AI
     const playerNames = room.gameMode === 'personality' ? room.players.map(p => p.name) : undefined
     const shouldGenerateTheme = room.gameMode === 'custom' && generateAITheme
-    
-    const result = await fetchQuestionsFromChatGPT(
-      room.theme, 
-      room.difficulty, 
-      room.questionCount, 
-      room.aiModel, 
-      playerNames,
-      shouldGenerateTheme,
-      room.gameMode
-    )
-    setLoadingQuestions(false)
-    
-    // Start the game
-    const updatedRoom: Room = {
-      ...generatingRoom,
-      questions: result.questions,
-      generatedTheme: result.generatedTheme,
-      currentIndex: 0,
-      status: 'question',
-      responses: {},
-      lastGain: {},
+
+    try {
+      const result = await fetchQuestionsFromChatGPT(
+        room.theme,
+        room.difficulty,
+        room.questionCount,
+        room.aiModel,
+        playerNames,
+        shouldGenerateTheme,
+        room.gameMode,
+        room.askedQuestions || [],
+      )
+
+      // Track the questions we've now used so the next round won't repeat them.
+      const newQuestionTexts = result.questions.map((q) => q.question).filter(Boolean)
+      const nextAsked = [...(room.askedQuestions || []), ...newQuestionTexts].slice(-200)
+
+      const updatedRoom: Room = {
+        ...generatingRoom,
+        questions: result.questions,
+        generatedTheme: result.generatedTheme,
+        askedQuestions: nextAsked,
+        currentIndex: 0,
+        status: 'question',
+        responses: {},
+        lastGain: {},
+      }
+      await saveRoomToStorage(updatedRoom)
+      setRoom(updatedRoom)
+    } catch (err) {
+      // No fallback. Surface the error and put the room back to lobby so the host can retry.
+      const msg = err instanceof Error ? err.message : String(err)
+      setGenerationError(msg)
+      const recoveredRoom: Room = { ...generatingRoom, status: 'lobby' }
+      await saveRoomToStorage(recoveredRoom)
+      setRoom(recoveredRoom)
+    } finally {
+      setLoadingQuestions(false)
     }
-    await saveRoomToStorage(updatedRoom)
-    setRoom(updatedRoom)
   }
 
   const endQuestion = useCallback(async () => {
@@ -148,10 +167,33 @@ export default function AdminPage() {
       const q = prev.questions[prev.currentIndex]
       if (!q) return prev
 
+      // Personality mode = popular vote. The "correct" answer is whichever choice
+      // got the most votes this round; ties are broken by lowest index for stability.
+      let effectiveCorrectIndex = q.correctIndex
+      const questionToPersist: typeof q = { ...q }
+      if (prev.gameMode === 'personality') {
+        const tally: number[] = new Array(q.choices.length).fill(0)
+        Object.values(prev.responses).forEach((r) => {
+          if (typeof r.answerIndex === 'number' && r.answerIndex >= 0 && r.answerIndex < tally.length) {
+            tally[r.answerIndex] += 1
+          }
+        })
+        let topIdx = 0
+        let topVotes = -1
+        tally.forEach((votes, idx) => {
+          if (votes > topVotes) {
+            topVotes = votes
+            topIdx = idx
+          }
+        })
+        effectiveCorrectIndex = topVotes > 0 ? topIdx : -1 // -1 = nobody voted, nobody scores
+        questionToPersist.correctIndex = effectiveCorrectIndex >= 0 ? effectiveCorrectIndex : 0
+      }
+
       const lastGain: Record<string, number> = {}
       const players = prev.players.map((p) => {
         const response = prev.responses[p.id]
-        const correct = response?.answerIndex === q.correctIndex
+        const correct = effectiveCorrectIndex >= 0 && response?.answerIndex === effectiveCorrectIndex
         const gain = correct
           ? difficultyPoints[prev.difficulty] + Math.max(0, Math.round(response.remaining))
           : 0
@@ -159,9 +201,17 @@ export default function AdminPage() {
         return { ...p, score: p.score + gain }
       })
 
+      // For personality mode, persist the winning choice into the question so the
+      // results screen shows the popular vote winner instead of a placeholder.
+      const questions =
+        prev.gameMode === 'personality'
+          ? prev.questions.map((qq, i) => (i === prev.currentIndex ? questionToPersist : qq))
+          : prev.questions
+
       const finished = prev.currentIndex >= prev.questions.length - 1
       const updated: Room = {
         ...prev,
+        questions,
         players,
         lastGain,
         status: finished ? 'final' : 'results',
@@ -204,7 +254,10 @@ export default function AdminPage() {
     saveRoomToStorage(updated).catch(console.error)
   }
 
-  const resetScores = (resetPoints: boolean) => {
+  // Reset the room back to its lobby state while keeping the same room code (and players).
+  // This is the "play again with the same code" path - askedQuestions is preserved so the
+  // next round avoids repeating questions from earlier rounds.
+  const restartRoom = (resetPoints: boolean) => {
     if (!room) return
     const updated: Room = {
       ...room,
@@ -462,6 +515,27 @@ export default function AdminPage() {
             </button>
           </div>
         </header>
+
+        {generationError && (
+          <div className="rounded-xl border border-red-500/50 bg-red-500/10 p-4 text-sm text-red-200">
+            <div className="font-semibold">❌ Couldn&apos;t generate questions</div>
+            <div className="mt-1 text-red-100/90 break-words">{generationError}</div>
+            <div className="mt-2 text-xs text-red-100/70">
+              Every game calls the LLM - there is no preset fallback. Common fixes:
+              <ul className="mt-1 list-disc pl-5">
+                <li>Set <code className="rounded bg-black/40 px-1 py-0.5">OPENAI_API_KEY</code> in your server env and restart</li>
+                <li>Pick a different model in the menu (this model may not exist on your account)</li>
+                <li>Lower the question count if the LLM truncated its response</li>
+              </ul>
+            </div>
+            <button
+              onClick={() => setGenerationError(null)}
+              className="mt-2 rounded bg-red-500/20 px-2 py-1 text-xs text-red-100 hover:bg-red-500/30"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Initial Room Creation */}
         {!room && (
@@ -777,17 +851,20 @@ export default function AdminPage() {
 
                 {room.status === 'final' && (
                   <div className="space-y-2">
+                    <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-3 text-center text-sm text-secondary">
+                      Same room code <span className="font-bold tracking-[0.2em]">{room.code}</span> - players stay connected, no need to rejoin.
+                    </div>
                     <button
-                      onClick={() => resetScores(false)}
+                      onClick={() => restartRoom(false)}
                       className="w-full rounded-xl bg-secondary px-4 py-3 text-lg font-semibold text-slate-900 shadow-lg transition hover:scale-[1.01]"
                     >
-                      New Game (keep scores)
+                      Play again (keep scores)
                     </button>
                     <button
-                      onClick={() => resetScores(true)}
+                      onClick={() => restartRoom(true)}
                       className="w-full rounded-xl bg-white/10 px-4 py-3 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01]"
                     >
-                      Reset scores & restart
+                      Play again (reset scores)
                     </button>
                   </div>
                 )}
@@ -797,7 +874,7 @@ export default function AdminPage() {
         )}
 
         <footer className="pb-8 text-center text-xs text-white/40">
-          © 2025 - Nico Vincent
+          © {new Date().getFullYear()} - Nico Vincent
         </footer>
       </div>
     </div>
