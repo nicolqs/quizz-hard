@@ -268,7 +268,37 @@ Respond with a single JSON object: {"questions": [ {"question": string, "choices
 
   // Scrub model self-commentary, stray newlines, and disclaimer parentheticals
   // out of every question and choice before anyone sees them.
-  parsed = parsed.map(sanitizeQuestion).filter((q) => q.question && Array.isArray(q.choices) && q.choices.every((c) => typeof c === 'string' && c.length > 0))
+  parsed = parsed.map(sanitizeQuestion)
+
+  // Drop malformed questions: must have non-empty question text, at least 2
+  // distinct non-empty choices, and a correctIndex within range.
+  // (Personality mode requires len(choices) === len(playerNames), enforced below.)
+  const expectedChoiceCount =
+    gameMode === 'personality' && playerNames && playerNames.length >= 2
+      ? playerNames.length
+      : null
+  parsed = parsed.filter((q) => {
+    if (!q.question || typeof q.question !== 'string') return false
+    if (!Array.isArray(q.choices) || q.choices.length < 2) return false
+    if (!q.choices.every((c) => typeof c === 'string' && c.length > 0)) return false
+    const uniqueChoices = new Set(q.choices.map((c) => c.trim().toLowerCase()))
+    if (uniqueChoices.size < 2) return false // all duplicates -> not a real question
+    if (
+      typeof q.correctIndex !== 'number' ||
+      q.correctIndex < 0 ||
+      q.correctIndex >= q.choices.length
+    ) {
+      // Personality questions don't have a real correctIndex; popular vote sets it at scoring time.
+      if (gameMode !== 'personality') return false
+      q.correctIndex = 0
+    }
+    if (expectedChoiceCount !== null && q.choices.length !== expectedChoiceCount) return false
+    return true
+  })
+
+  if (parsed.length === 0) {
+    throw new LlmCallError('LLM returned questions but none had at least 2 valid distinct choices')
+  }
 
   // De-duplicate against askedQuestions (case-insensitive).
   const seen = new Set(askedQuestions.map((q) => q.trim().toLowerCase()))
