@@ -1,20 +1,24 @@
 import Link from 'next/link'
 import { SectionCard } from './SectionCard'
 
-// Games that are not ours but belong in the same night. They open in a new tab
-// so an in-progress room is never lost.
+// Games that live somewhere else but belong in the same night. They open in a
+// new tab so an in-progress room is never lost.
+//
+// Akinator points at the production alias rather than the team-scoped
+// *-nicolqs-projects domain, which Vercel puts behind a login wall for anyone
+// who is not signed in to the account.
 export const externalGames = [
   {
     name: 'Uno',
     emoji: '🃏',
-    href: 'https://unoonline.io/',
-    blurb: 'Free in the browser, no install, 2 to 4 players',
+    href: 'https://uno.nicolqs.workers.dev',
+    blurb: 'Pick a name and join. Multiplayer in the browser, nothing to install',
   },
   {
-    name: 'Akinator',
+    name: 'Le Génie',
     emoji: '🧞',
-    href: 'https://en.akinator.com/',
-    blurb: 'Think of a character and let the genie guess it',
+    href: 'https://akinator-iota.vercel.app',
+    blurb: 'Think of anyone and let the genie guess it. Français, English, Español',
   },
 ]
 
