@@ -10,7 +10,9 @@ A Jackbox-style multiplayer quiz game with AI-generated questions. Built with **
 ## ✨ Features
 
 - 🎯 **Real-time multiplayer** - Play with friends across devices
-- 🤖 **AI-generated questions** - Powered by OpenAI GPT-4o-mini
+- 🙈 **Heads Up!** - Phone on your forehead, the room shouts clues, tilt to score
+- 🎮 **2 Player Games** - One phone between two people: ping pong, sumo, reaction duel
+- 🤖 **AI-generated questions** - Powered by the OpenAI GPT-5.6 suite
 - 🎨 **Beautiful UI** - Modern design with Tailwind CSS
 - ⚡ **Fast updates** - Server-Sent Events for real-time synchronization
 - 🗄️ **Persistent storage** - PostgreSQL database via Neon
@@ -57,8 +59,8 @@ Create a `.env` file in the root directory:
 # Required: Neon PostgreSQL connection string
 DATABASE_URL=postgresql://user:password@host.neon.tech/dbname?sslmode=require
 
-# Optional: OpenAI API key for AI-generated questions
-# If not provided, the app uses fallback questions
+# Required for trivia and AI decks: there is no offline question bank.
+# Heads Up's built-in decks and the 2-player games work without it.
 OPENAI_API_KEY=sk-your-key-here
 ```
 
@@ -74,6 +76,10 @@ OPENAI_API_KEY=sk-your-key-here
 ```
 
 Or copy from `neon-schema.sql` in this repo.
+
+**Upgrading an existing database?** Run the files in `migrations/` in order. The
+latest one, `002_heads_up.sql`, adds the `heads_up` column the Heads Up! mode
+stores its state in.
 
 ### 5. Run Development Server
 
@@ -113,7 +119,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/)
 - **Database**: [Neon](https://neon.tech) (PostgreSQL)
 - **Real-time**: Server-Sent Events (SSE)
-- **AI**: [OpenAI](https://openai.com/) GPT-4o-mini
+- **AI**: [OpenAI](https://openai.com/) GPT-5.6 (Luna by default, Terra and Sol selectable)
 - **Deployment**: [Vercel](https://vercel.com/)
 
 ## 📁 Project Structure
@@ -151,6 +157,38 @@ nix-games/
 - Food & Cooking, Travel, Literature, Art
 - Fashion, Business, Crypto, Fitness, and more!
 
+### 🙈 Heads Up!
+Charades for a room with energy. One player holds their phone to their forehead
+with the screen facing out, everyone else shouts clues, and the guesser **tilts
+down for correct, up to pass** against the clock. Turns rotate through the whole
+lobby and the scores add up.
+
+- **8 built-in decks** (Celebrities, Animals, Movies, Accents, Characters,
+  Sports, Food & Drink, Internet Culture) that work offline with no API key
+- **Any theme** - type one and the AI writes a deck through `/api/generate-deck`
+- **30 / 60 / 90 second** rounds
+- Every device sees the same word and the same countdown, so the room stays in sync
+
+**Tilt needs a secure origin.** iOS Safari also needs a one-time permission tap,
+which is why the guesser screen shows an "Enable tilt" button. Over plain `http`
+on a LAN, or on a laptop, the card falls back to tap controls: bottom half for
+correct, top half to pass. The screen is kept awake for the length of a turn
+where the browser supports it.
+
+### 🎮 2 Player Games (`/duel`)
+No room code, no network, no account. Lay one phone flat between two people:
+player one takes the top half (their score bar is rotated to face them), player
+two the bottom. First to 3 points wins the match.
+
+- **Ping Pong** - slide a thumb along your half to move your paddle. Hitting the
+  ball off-centre angles the return, so rallies build instead of metronoming
+- **Sumo** - press and drag anywhere in your half to thrust. Shove the other
+  disc out of the ring, and mind your own momentum
+- **Reaction** - wait for green then be first. Tapping early hands over the point
+
+Every pointer is claimed by the half it started in, so two thumbs on one screen
+never steal each other's controls.
+
 ### 4 Difficulty Levels
 - **Easy**: 10 points + speed bonus
 - **Medium**: 20 points + speed bonus
@@ -162,6 +200,19 @@ nix-games/
 - 8 seconds per question (customizable 8-45s)
 - Real-time leaderboard
 - Score tracking with speed bonus
+
+## 🧪 Tests
+
+Playwright scripts, each pointed at a running dev server via `BASE_URL`:
+
+```bash
+node scripts/smoke.mjs        # error handling when OPENAI_API_KEY is missing
+node scripts/multiplayer.mjs  # 4 devices through a full trivia round (calls OpenAI)
+node scripts/headsup.mjs      # 3 devices through two Heads Up turns (no API key needed)
+node scripts/duel.mjs         # all three 2-player games, scoring and match end (no API key needed)
+```
+
+They stub `/api/rooms/[code]` with an in-process store, so no database is needed.
 
 ## 🚀 Deployment
 
@@ -266,7 +317,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Inspired by Jackbox Party Pack games
 - Built with Next.js 15 and React 19
-- Questions powered by OpenAI GPT-4o-mini
+- Questions powered by the OpenAI GPT-5.6 suite
 - Database hosted on Neon PostgreSQL
 - Deployed on Vercel
 

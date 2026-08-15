@@ -22,7 +22,7 @@ export async function GET(
           gameMode: room.game_mode || 'standard',
           theme: room.theme,
           generatedTheme: room.generated_theme || undefined,
-          aiModel: room.ai_model || 'gpt-4o-mini',
+          aiModel: room.ai_model || 'gpt-5.6-luna',
           difficulty: room.difficulty,
           questionCount: room.question_count,
           timePerQuestion: room.time_per_question,

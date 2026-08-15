@@ -1,16 +1,19 @@
 'use client'
 
 import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { ExternalGames } from '@/components/ExternalGames'
 import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
 import { fetchQuestionsFromChatGPT } from '@/lib/questions'
-import { saveRoomToStorage } from '@/lib/storage'
-import { aiModels, DEFAULT_AI_MODEL, difficultyPoints, gameModes, themes, type Difficulty, type GameMode, type Player, type Room } from '@/lib/types'
+import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
+import { aiModels, DEFAULT_AI_MODEL, difficultyPoints, emptyHeadsUpState, gameModes, ROUND_LENGTHS, themes, type Difficulty, type GameMode, type Player, type Room } from '@/lib/types'
+import { decks, getDeck, shuffleWords } from '@/lib/decks'
+import { advanceTurn, cardsFor, currentGuesserId, endTurn, guesserName, headsUpState, isLastTurn, mergeTurnResults, startTurn, turnClock } from '@/lib/headsup'
 import { generatePlayerId, generateRoomCode } from '@/lib/utils'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -32,6 +35,9 @@ export default function AdminPage() {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [questionCount, setQuestionCount] = useState(8)
   const [timePerQuestion, setTimePerQuestion] = useState(8)
+  const [deckId, setDeckId] = useState<string>(decks[0].id)
+  const [deckTheme, setDeckTheme] = useState('')
+  const [roundSeconds, setRoundSeconds] = useState<number>(60)
 
   const currentQuestion = useMemo(
     () => (room && room.questions[room.currentIndex]) || null,
@@ -39,7 +45,7 @@ export default function AdminPage() {
   )
 
   useEffect(() => {
-    if (room?.status === 'question') {
+    if (room?.status === 'question' && room.gameMode !== 'headsup') {
       setTimeLeft(room.timePerQuestion)
       const ticker = setInterval(() => {
         setTimeLeft((t) => {
@@ -53,7 +59,25 @@ export default function AdminPage() {
       }, 1000)
       return () => clearInterval(ticker)
     }
-  }, [room?.status, room?.currentIndex, room?.timePerQuestion])
+  }, [room?.status, room?.currentIndex, room?.timePerQuestion, room?.gameMode])
+
+  // Heads Up runs off the shared turnStartedAt rather than a local countdown, so
+  // the host, the guesser and the clue-givers all see the same number.
+  const hu = headsUpState(room)
+  const roomRef = useRef<Room | null>(null)
+  roomRef.current = room
+
+  useEffect(() => {
+    if (!room || room.gameMode !== 'headsup' || room.status !== 'question') return
+    const tick = () => {
+      const { countdown, timeLeft: left, expired } = turnClock(room.headsUp ?? null)
+      setTimeLeft(countdown > 0 ? room.headsUp?.roundSeconds ?? 0 : left)
+      if (expired) void finishHeadsUpTurn()
+    }
+    tick()
+    const ticker = setInterval(tick, 250)
+    return () => clearInterval(ticker)
+  }, [room?.status, room?.gameMode, room?.headsUp?.turnStartedAt, room?.headsUp?.turnIndex])
 
   const createRoom = async () => {
     const code = generateRoomCode()
@@ -71,8 +95,10 @@ export default function AdminPage() {
       finalTheme = 'Emoji Decoder'
     } else if (gameMode === 'personality') {
       finalTheme = 'Personality Mode'
+    } else if (gameMode === 'headsup') {
+      finalTheme = deckId === 'ai' ? deckTheme || 'Heads Up!' : getDeck(deckId)?.name || 'Heads Up!'
     }
-    
+
     const newRoom: Room = {
       code,
       hostName: hostName || 'Host',
@@ -88,6 +114,15 @@ export default function AdminPage() {
       status: 'lobby',
       responses: {},
       lastGain: {},
+      headsUp:
+        gameMode === 'headsup'
+          ? {
+              ...emptyHeadsUpState(),
+              deckId,
+              deckName: finalTheme,
+              roundSeconds,
+            }
+          : undefined,
     }
     await saveRoomToStorage(newRoom)
     setRoom(newRoom)
@@ -102,8 +137,92 @@ export default function AdminPage() {
     })
   }
 
+  /** Heads Up start: load the deck, then put the first player on the clock. */
+  const startHeadsUp = async () => {
+    if (!room) return
+    setGenerationError(null)
+
+    const order = room.players.map((p) => p.id)
+    if (!order.length) return
+
+    let words: string[] = []
+    const useAi = (room.headsUp?.deckId || deckId) === 'ai'
+
+    if (useAi) {
+      const generatingRoom: Room = { ...room, status: 'generating' }
+      await saveRoomToStorage(generatingRoom)
+      setRoom(generatingRoom)
+      setLoadingQuestions(true)
+      try {
+        const res = await fetch('/api/generate-deck', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme: room.theme, count: 45, aiModel: room.aiModel }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || `Deck request failed (${res.status})`)
+        words = Array.isArray(data.words) ? data.words : []
+        if (words.length < 10) throw new Error('The deck came back too short. Try another theme.')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setGenerationError(msg)
+        const recovered: Room = { ...generatingRoom, status: 'lobby' }
+        await saveRoomToStorage(recovered)
+        setRoom(recovered)
+        setLoadingQuestions(false)
+        return
+      }
+      setLoadingQuestions(false)
+    } else {
+      const deck = getDeck(room.headsUp?.deckId || deckId)
+      words = shuffleWords(deck?.words ?? [])
+    }
+
+    const prepared: Room = {
+      ...room,
+      round: (room.round ?? 0) + 1,
+      headsUp: {
+        ...(room.headsUp ?? emptyHeadsUpState()),
+        deckId: room.headsUp?.deckId || deckId,
+        deckName: room.theme,
+        roundSeconds: room.headsUp?.roundSeconds || roundSeconds,
+        words,
+        order,
+        turnIndex: 0,
+        cardIndex: 0,
+        results: {},
+      },
+    }
+
+    const live = startTurn(prepared, 0)
+    await saveRoomToStorage(live)
+    setRoom(live)
+  }
+
+  /**
+   * Ends the live turn against the freshest copy of the room, so cards the
+   * guesser tapped in the last moments still count.
+   */
+  const finishHeadsUpTurn = useCallback(async () => {
+    const current = roomRef.current
+    if (!current || current.gameMode !== 'headsup' || current.status !== 'question') return
+    const latest = await getRoomFromStorage(current.code).catch(() => null)
+    const merged = latest ? mergeTurnResults(current, latest) : current
+    const ended = endTurn(merged)
+    await saveRoomToStorage(ended)
+    setRoom(ended)
+  }, [])
+
+  const nextHeadsUpTurn = async () => {
+    if (!room) return
+    const updated = advanceTurn(room)
+    await saveRoomToStorage(updated)
+    setRoom(updated)
+  }
+
   const startGame = async () => {
     if (!room) return
+    if (room.gameMode === 'headsup') return startHeadsUp()
 
     setGenerationError(null)
 
@@ -324,6 +443,81 @@ export default function AdminPage() {
     }
   }
 
+
+  const headsUpSettings = (
+    <div className="space-y-3">
+      <div>
+        <label className="text-sm text-slate-300">Deck</label>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {decks.map((deck) => (
+            <button
+              key={deck.id}
+              onClick={() => setDeckId(deck.id)}
+              className={`rounded-lg border p-2 text-left transition ${
+                deckId === deck.id
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-white/10 bg-white/5 hover:border-primary/40'
+              }`}
+            >
+              <div className="text-sm font-semibold">
+                {deck.emoji} {deck.name}
+              </div>
+              <div className="text-[11px] text-white/50">{deck.words.length} cards</div>
+            </button>
+          ))}
+          <button
+            onClick={() => setDeckId('ai')}
+            className={`col-span-2 rounded-lg border p-2 text-left transition ${
+              deckId === 'ai'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-white/10 bg-white/5 hover:border-primary/40'
+            }`}
+          >
+            <div className="text-sm font-semibold">✨ Any theme (AI)</div>
+            <div className="text-[11px] text-white/50">Type a theme and the AI writes the deck</div>
+          </button>
+        </div>
+      </div>
+
+      {deckId === 'ai' && (
+        <div>
+          <label className="text-sm text-slate-300">Deck theme</label>
+          <input
+            type="text"
+            value={deckTheme}
+            onChange={(e) => setDeckTheme(e.target.value)}
+            placeholder="e.g. '90s cartoons' or 'things in this office'"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+          />
+        </div>
+      )}
+
+      <div>
+        <label className="text-sm text-slate-300">Round length</label>
+        <div className="mt-1 grid grid-cols-3 gap-2 text-center text-xs font-semibold">
+          {ROUND_LENGTHS.map((secs) => (
+            <button
+              key={secs}
+              onClick={() => setRoundSeconds(secs)}
+              className={`rounded-lg px-2 py-2 transition ${
+                roundSeconds === secs
+                  ? 'bg-primary text-white shadow'
+                  : 'bg-white/5 text-white/70 hover:bg-white/10'
+              }`}
+            >
+              {secs}s
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p className="rounded-lg bg-white/5 p-3 text-xs text-white/60">
+        Each player takes a turn holding their phone to their forehead. Everyone else shouts clues.
+        Tilt down for correct, up to pass. On a laptop, or over plain http, tap the screen instead.
+      </p>
+    </div>
+  )
+
   const inLobby = room && room.status === 'lobby'
   const inGenerating = room && room.status === 'generating'
   const inQuestion = room && room.status === 'question'
@@ -451,6 +645,8 @@ export default function AdminPage() {
                   </label>
                 </div>
               )}
+
+              {gameMode === 'headsup' && headsUpSettings}
 
               <div>
                 <label className="text-sm text-slate-300">AI Model</label>
@@ -656,6 +852,8 @@ export default function AdminPage() {
                 </>
               )}
 
+              {gameMode === 'headsup' && headsUpSettings}
+
               <label className="text-sm text-slate-300">AI Model</label>
               <select
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
@@ -721,6 +919,8 @@ export default function AdminPage() {
           </SectionCard>
         )}
 
+        {!room && <ExternalGames />}
+
         {/* Lobby View - After Room Created */}
         {room && inLobby && (
           <div className="grid gap-4 lg:grid-cols-2">
@@ -753,7 +953,13 @@ export default function AdminPage() {
                       : 'bg-primary text-white shadow-lg hover:scale-[1.01]'
                   }`}
                 >
-                  {loadingQuestions ? 'Summoning AI questions…' : 'Start Game'}
+                  {loadingQuestions
+                    ? room.gameMode === 'headsup'
+                      ? 'Writing the deck…'
+                      : 'Summoning AI questions…'
+                    : room.gameMode === 'headsup'
+                      ? `Start Heads Up (${room.players.length} ${room.players.length === 1 ? 'turn' : 'turns'})`
+                      : 'Start Game'}
                 </button>
               </div>
             </SectionCard>
@@ -794,6 +1000,121 @@ export default function AdminPage() {
               <p className="text-sm text-white/60 light:text-black/60">⏱️ Takes about ~10 seconds</p>
               <p className="text-xs text-white/50 light:text-black/50 mt-1">Your players see this too!</p>
             </div>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: live turn. The host screen is the room's shared view, so it
+            shows the word to everyone EXCEPT when the host is the one guessing. */}
+        {room && room.gameMode === 'headsup' && inQuestion && hu && (
+          <SectionCard
+            title={`${guesserName(room)} is up · turn ${hu.turnIndex + 1} / ${hu.order.length}`}
+            accent="from-primary/30 to-secondary/30"
+          >
+            {currentGuesserId(room) === sessionPlayerId ? (
+              <div className="py-8 text-center">
+                <p className="text-2xl font-bold">You are guessing.</p>
+                <p className="mt-2 text-white/60">Pick up your phone, hold it to your forehead, and do not look at this screen.</p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-sm uppercase tracking-[0.3em] text-white/60">Shout clues for</p>
+                <p className="mt-3 text-5xl font-black leading-tight sm:text-7xl">
+                  {hu.words[hu.cardIndex + cardsFor(hu, currentGuesserId(room) || '').length] ?? '…'}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center justify-between gap-4">
+              <span className="text-sm text-white/60">
+                {cardsFor(hu, currentGuesserId(room) || '').filter((c) => c.got).length} correct
+              </span>
+              <span className={`rounded-lg px-4 py-2 text-3xl font-bold ${timeLeft <= 10 ? 'text-danger' : 'text-secondary'}`}>
+                {timeLeft}s
+              </span>
+              <button
+                onClick={() => void finishHeadsUpTurn()}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 hover:bg-white/10"
+              >
+                End turn
+              </button>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: turn summary */}
+        {room && room.gameMode === 'headsup' && room.status === 'results' && hu && (
+          <SectionCard title={`${guesserName(room)} scored ${room.lastGain[currentGuesserId(room) || ''] ?? 0}`} accent="from-secondary/20 to-primary/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {cardsFor(hu, currentGuesserId(room) || '').map((card, idx) => (
+                <div
+                  key={`${card.word}-${idx}`}
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+                    card.got ? 'bg-secondary/15 text-secondary' : 'bg-white/5 text-white/50 line-through'
+                  }`}
+                >
+                  <span>{card.word}</span>
+                  <span>{card.got ? '✓' : 'passed'}</span>
+                </div>
+              ))}
+              {cardsFor(hu, currentGuesserId(room) || '').length === 0 && (
+                <p className="text-sm text-white/60">No cards played.</p>
+              )}
+            </div>
+
+            <button
+              onClick={nextHeadsUpTurn}
+              className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01]"
+            >
+              {isLastTurn(room)
+                ? 'Finish and show the leaderboard'
+                : `Next up: ${room.players.find((p) => p.id === hu.order[hu.turnIndex + 1])?.name || 'next player'}`}
+            </button>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: final leaderboard */}
+        {room && room.gameMode === 'headsup' && room.status === 'final' && hu && (
+          <SectionCard title="Final leaderboard" accent="from-secondary/30 to-primary/30">
+            <div className="grid gap-2">
+              {sortedLeaderboard.map((p, idx) => (
+                <div
+                  key={p.id}
+                  className={`flex items-center justify-between rounded-xl px-4 py-3 ${
+                    idx === 0 ? 'bg-gradient-to-r from-secondary/25 to-primary/25' : 'bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-white/50">#{idx + 1}</span>
+                    <span className="font-semibold">{p.name}</span>
+                  </div>
+                  <span className="font-bold">{p.score}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={async () => {
+                const reset: Room = {
+                  ...room,
+                  status: 'lobby',
+                  players: room.players.map((p) => ({ ...p, score: 0 })),
+                  lastGain: {},
+                  headsUp: {
+                    ...hu,
+                    words: [],
+                    order: [],
+                    turnIndex: 0,
+                    cardIndex: 0,
+                    results: {},
+                    turnStartedAt: undefined,
+                  },
+                }
+                await saveRoomToStorage(reset)
+                setRoom(reset)
+              }}
+              className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01]"
+            >
+              New game, same room
+            </button>
           </SectionCard>
         )}
 

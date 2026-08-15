@@ -10,7 +10,7 @@ function rowToRoom(room: any) {
     gameMode: room.game_mode || 'standard',
     theme: room.theme,
     generatedTheme: room.generated_theme || undefined,
-    aiModel: room.ai_model || 'gpt-4o-mini',
+    aiModel: room.ai_model || 'gpt-5.6-luna',
     difficulty: room.difficulty,
     questionCount: room.question_count,
     timePerQuestion: room.time_per_question,
@@ -22,6 +22,7 @@ function rowToRoom(room: any) {
     status: room.status,
     responses: room.responses || {},
     lastGain: room.last_gain || {},
+    headsUp: room.heads_up && Object.keys(room.heads_up).length > 0 ? room.heads_up : undefined,
   }
 }
 
@@ -62,14 +63,14 @@ export async function PUT(
         code, host_name, game_mode, theme, generated_theme, ai_model,
         difficulty, question_count, time_per_question,
         players, questions, asked_questions, round,
-        current_index, status, responses, last_gain
+        current_index, status, responses, last_gain, heads_up
       ) VALUES (
         ${roomCode},
         ${room.hostName},
         ${room.gameMode || 'standard'},
         ${room.theme},
         ${room.generatedTheme || null},
-        ${room.aiModel || 'gpt-4o-mini'},
+        ${room.aiModel || 'gpt-5.6-luna'},
         ${room.difficulty},
         ${room.questionCount},
         ${room.timePerQuestion},
@@ -80,7 +81,8 @@ export async function PUT(
         ${room.currentIndex || 0},
         ${room.status},
         ${JSON.stringify(room.responses || {})},
-        ${JSON.stringify(room.lastGain || {})}
+        ${JSON.stringify(room.lastGain || {})},
+        ${JSON.stringify(room.headsUp || {})}
       )
       ON CONFLICT (code) DO UPDATE SET
         host_name = EXCLUDED.host_name,
@@ -99,6 +101,7 @@ export async function PUT(
         status = EXCLUDED.status,
         responses = EXCLUDED.responses,
         last_gain = EXCLUDED.last_gain,
+        heads_up = EXCLUDED.heads_up,
         updated_at = NOW()
     `
 

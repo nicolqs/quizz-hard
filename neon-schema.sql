@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   game_mode TEXT NOT NULL DEFAULT 'standard',
   theme TEXT NOT NULL,
   generated_theme TEXT,
-  ai_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  ai_model TEXT NOT NULL DEFAULT 'gpt-5.6-luna',
   difficulty TEXT NOT NULL CHECK (difficulty IN ('easy', 'medium', 'hard', 'impossible')),
   question_count INTEGER NOT NULL,
   time_per_question INTEGER NOT NULL,
@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   status TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby', 'generating', 'question', 'results', 'final')),
   responses JSONB NOT NULL DEFAULT '{}'::jsonb,
   last_gain JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- All Heads Up! state (deck, turn order, current card, per-player results)
+  heads_up JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

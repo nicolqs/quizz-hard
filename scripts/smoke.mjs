@@ -73,7 +73,7 @@ async function testApiReturns503WithoutKey() {
       theme: 'Movies',
       difficulty: 'medium',
       count: 5,
-      aiModel: 'gpt-5.4-nano',
+      aiModel: 'gpt-5.6-luna',
       gameMode: 'standard',
       askedQuestions: [],
     }),

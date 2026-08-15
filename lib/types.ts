@@ -13,27 +13,17 @@ export type AIModel = {
   description: string
 }
 
-export const DEFAULT_AI_MODEL = 'gpt-5.4-nano' // Newer nano - good quality, ~$0.0014 per game
+export const DEFAULT_AI_MODEL = 'gpt-5.6-luna' // Cost-optimised 5.6, plenty for trivia
 
 export const aiModels: AIModel[] = [
-  // Cheapest - recommended for trivia (each game costs a fraction of a cent)
-  { id: DEFAULT_AI_MODEL, name: 'GPT-5.4 Nano (Default)', description: '$0.20/$1.25 per 1M tok - newer, ~$0.0014 per game' },
-  { id: 'gpt-5-nano', name: 'GPT-5 Nano (Cheapest)', description: '$0.05/$0.40 per 1M tok - ~$0.0004 per game' },
-  { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', description: '$0.10/$0.40 per 1M tok - similar price, older' },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: '$0.15/$0.60 per 1M tok - safe fallback' },
+  // Cheapest of the 5.6 suite. A whole game costs a fraction of a cent.
+  { id: DEFAULT_AI_MODEL, name: 'GPT-5.6 Luna (Default)', description: '$0.20/$1.20 per 1M tok - cost-optimised, best value for trivia' },
 
-  // Mid-tier
-  { id: 'gpt-5-mini', name: 'GPT-5 Mini', description: '$0.25/$2.00 per 1M tok - better at hard questions' },
-  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', description: 'Cheaper mid-tier, good enough for most questions' },
-  { id: 'gpt-5.1-mini', name: 'GPT-5.1 Mini', description: 'Good balance of speed & quality' },
+  // Mid-tier: worth it for hard themes or long custom prompts.
+  { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: '$2/$12 per 1M tok - balanced intelligence and cost' },
 
-  // Flagship (much more expensive - only for hard/creative themes)
-  { id: 'gpt-5.4', name: 'GPT-5.4', description: '$2.50/$15 per 1M tok - flagship, expensive' },
-  { id: 'gpt-5.1', name: 'GPT-5.1', description: 'Best for rich story, complex questions' },
-  { id: 'gpt-4.1', name: 'GPT-4.1', description: 'Strong general model for detailed content' },
-
-  // Reasoning
-  { id: 'o4-mini', name: 'O4 Mini (Reasoning)', description: 'Best for puzzles & logic questions' },
+  // Frontier: only for rich, creative or genuinely difficult content.
+  { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: '$5/$30 per 1M tok - frontier model, expensive' },
 ]
 
 export type Question = {
@@ -59,7 +49,45 @@ export type Response = {
   votedFor?: string // For personality mode: player ID that was voted for
 }
 
-export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom'
+export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom' | 'headsup'
+
+/** One card decided during a Heads Up turn. */
+export type HeadsUpCardResult = {
+  word: string
+  got: boolean
+}
+
+/**
+ * Heads Up state, persisted in the rooms.heads_up JSONB column.
+ *
+ * turnStartedAt is the anchor every device counts down from, so the guesser and
+ * the clue-givers see the same number instead of drifting local timers.
+ */
+export type HeadsUpState = {
+  deckId: string
+  deckName: string
+  words: string[]
+  /** Player ids in turn order. */
+  order: string[]
+  turnIndex: number
+  cardIndex: number
+  roundSeconds: number
+  turnStartedAt?: string
+  results: Record<string, HeadsUpCardResult[]>
+}
+
+export const ROUND_LENGTHS = [30, 60, 90] as const
+
+export const emptyHeadsUpState = (): HeadsUpState => ({
+  deckId: '',
+  deckName: '',
+  words: [],
+  order: [],
+  turnIndex: 0,
+  cardIndex: 0,
+  roundSeconds: 60,
+  results: {},
+})
 
 export type Room = {
   code: string
@@ -81,6 +109,8 @@ export type Room = {
   askedQuestions?: string[]
   // Incremented every time a new round of questions starts (lets clients reset stale UI)
   round?: number
+  // Only used by the 'headsup' game mode.
+  headsUp?: HeadsUpState
 }
 
 export const gameModes = [
@@ -88,6 +118,7 @@ export const gameModes = [
   { id: 'emoji', name: '😎 Emoji Decoder', description: 'Decode emojis into answers' },
   { id: 'personality', name: '👥 Personality Mode', description: 'Vote on which player fits best (popular vote)' },
   { id: 'custom', name: '✨ Custom Theme', description: 'Create your own theme or let AI surprise you' },
+  { id: 'headsup', name: '🙈 Heads Up!', description: 'Phone on your forehead, everyone shouts clues, tilt to score' },
 ] as const
 
 export const themes = [

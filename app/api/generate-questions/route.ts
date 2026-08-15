@@ -1,4 +1,12 @@
 import type { Difficulty, GameMode, Question } from '@/lib/types'
+import {
+  LlmCallError,
+  LlmConfigError,
+  samplingParams,
+  sanitizeText,
+  temperatureParam,
+  tokenLimitParam,
+} from '@/lib/openai'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Diversity hints to push the model into a different corner of the theme each call.
@@ -17,38 +25,6 @@ const ANGLES = [
   'symbols, mascots, or visual identity',
 ]
 const ERAS = ['pre-1950', '1950s-1970s', '1980s', '1990s', '2000s', '2010s', '2020s', 'all-time mix']
-
-// gpt-5.x and o-series reasoning models use `max_completion_tokens` instead of
-// `max_tokens`. Older chat models (gpt-4.x, gpt-4o*) still use `max_tokens`.
-function usesMaxCompletionTokens(model: string): boolean {
-  return /^(gpt-5|o\d|gpt-6)/i.test(model)
-}
-
-function tokenLimitParam(model: string, value: number): Record<string, number> {
-  return usesMaxCompletionTokens(model)
-    ? { max_completion_tokens: value }
-    : { max_tokens: value }
-}
-
-// Strip the kind of self-commentary LLMs sometimes inject into question text or choices:
-// trailing parenthetical disclaimers like "(also not matching accurate scenario)",
-// "(approximate)", "(note: ...)", or stray newlines/control chars.
-function sanitizeText(input: unknown): string {
-  if (typeof input !== 'string') return ''
-  let s = input
-  // Replace any newline/tab with a space so questions stay single-line.
-  s = s.replace(/[\r\n\t]+/g, ' ')
-  // Drop trailing parenthetical asides whose content looks like model commentary.
-  // Matches " (note: ...)", " (also ...)", " (approximate)", " (not exact)", " (FYI ...)", etc.
-  const commentaryParen = /\s*\((?:note|also|approx(?:imate(?:ly)?)?|approx\.|fyi|disclaimer|caveat|source|see|ref|n\/a|not (?:exact|matching|accurate|sure)|may (?:vary|differ)|roughly)\b[^()]*\)\s*$/i
-  while (commentaryParen.test(s)) s = s.replace(commentaryParen, '')
-  // Drop trailing bracketed asides like " [note: ...]"
-  const commentaryBracket = /\s*\[[^[\]]*\]\s*$/
-  if (commentaryBracket.test(s) && /(note|approx|fyi|source)/i.test(s)) s = s.replace(commentaryBracket, '')
-  // Collapse any runs of internal whitespace.
-  s = s.replace(/\s{2,}/g, ' ').trim()
-  return s
-}
 
 // Strip any unknown / extra fields the LLM may emit (e.g. "explanation",
 // "hint", "tip", "source") - we only keep the fields the game actually uses.
@@ -72,9 +48,6 @@ function shuffle<T>(items: T[]): T[] {
 function pickN<T>(items: T[], n: number): T[] {
   return shuffle(items).slice(0, n)
 }
-
-class LlmConfigError extends Error {}
-class LlmCallError extends Error {}
 
 async function generateUniqueTheme(aiModel: string): Promise<string> {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
@@ -101,7 +74,7 @@ async function generateUniqueTheme(aiModel: string): Promise<string> {
           content: `Generate ONE unique trivia theme that would be fun for a party quiz. Make it quirky, unexpected, and engaging. Random seed to vary your output: ${Math.random().toString(36).slice(2)}. Respond with ONLY the theme name, nothing else.`,
         },
       ],
-      temperature: 1.1,
+      ...temperatureParam(aiModel, 1.1),
       ...tokenLimitParam(aiModel, 50),
     }),
   })
@@ -214,10 +187,8 @@ Respond with a single JSON object: {"questions": [ {"question": string, "choices
       // JSON mode: model is forced to emit valid JSON.
       response_format: { type: 'json_object' },
       // Higher temperature + top_p to broaden the distribution between calls.
-      temperature: 1.05,
-      top_p: 0.95,
-      presence_penalty: 0.6,
-      frequency_penalty: 0.4,
+      ...temperatureParam(aiModel, 1.05),
+      ...samplingParams(aiModel, { top_p: 0.95, presence_penalty: 0.6, frequency_penalty: 0.4 }),
       // Give the model enough room to finish the array without truncation.
       // Param name depends on model family: gpt-5.x/o-series want max_completion_tokens.
       ...tokenLimitParam(aiModel, 3000),
@@ -342,7 +313,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Count must be between 1 and 20' }, { status: 400 })
     }
 
-    const modelToUse = aiModel || 'gpt-5.4-nano'
+    const modelToUse = aiModel || 'gpt-5.6-luna'
     const mode: GameMode = gameMode || 'standard'
 
     console.log('[Questions API] Generating', count, difficulty, 'questions about', theme, 'using', modelToUse, 'mode:', mode, '| avoid:', (askedQuestions || []).length)

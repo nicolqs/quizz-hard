@@ -1,14 +1,28 @@
 'use client'
 
+import { ExternalGames } from '@/components/ExternalGames'
 import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
 import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
 import { difficultyPoints, type Player, type Room } from '@/lib/types'
+import { HeadsUpCard } from '@/components/HeadsUpCard'
+import { useTilt } from '@/hooks/useTilt'
+import { useWakeLock } from '@/hooks/useWakeLock'
+import {
+  cardsFor,
+  currentGuesserId,
+  guesserName,
+  headsUpState,
+  recordCard,
+  scoreFor,
+  wordFor,
+  turnClock,
+} from '@/lib/headsup'
 import { generatePlayerId } from '@/lib/utils'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 function PlayerPageContent() {
   const searchParams = useSearchParams()
@@ -18,6 +32,9 @@ function PlayerPageContent() {
   const [error, setError] = useState<string | null>(null)
   const [loadingProgress, setLoadingProgress] = useState(0)
   
+  const sessionPlayerIdRef = useRef<string | null>(null)
+  sessionPlayerIdRef.current = sessionPlayerId
+
   const [joinCode, setJoinCode] = useState('')
   const [joinName, setJoinName] = useState('')
 
@@ -45,7 +62,7 @@ function PlayerPageContent() {
               hostName: roomConfig.hostName,
               gameMode: roomConfig.gameMode || 'standard',
               theme: roomConfig.theme,
-              aiModel: roomConfig.aiModel || 'gpt-4o-mini',
+              aiModel: roomConfig.aiModel || 'gpt-5.6-luna',
               difficulty: roomConfig.difficulty,
               questionCount: roomConfig.questionCount,
               timePerQuestion: roomConfig.timePerQuestion,
@@ -75,7 +92,7 @@ function PlayerPageContent() {
   }, [searchParams])
 
   useEffect(() => {
-    if (room?.status === 'question') {
+    if (room?.status === 'question' && room.gameMode !== 'headsup') {
       setTimeLeft(room.timePerQuestion)
       const ticker = setInterval(() => {
         setTimeLeft((t) => {
@@ -88,7 +105,47 @@ function PlayerPageContent() {
       }, 1000)
       return () => clearInterval(ticker)
     }
-  }, [room?.status, room?.currentIndex, room?.timePerQuestion])
+  }, [room?.status, room?.currentIndex, room?.timePerQuestion, room?.gameMode])
+
+  // ---------------------------------------------------------------- Heads Up
+  const hu = headsUpState(room)
+  const guesserId = currentGuesserId(room)
+  const isGuesser = Boolean(sessionPlayerId && guesserId === sessionPlayerId)
+  const [clock, setClock] = useState({ countdown: 3, timeLeft: 0, expired: false })
+
+  // Everyone derives the countdown from the shared start time, so the guesser
+  // and the clue-givers never drift apart.
+  useEffect(() => {
+    if (!room || room.gameMode !== 'headsup' || room.status !== 'question') return
+    const tick = () => setClock(turnClock(room.headsUp ?? null))
+    tick()
+    const ticker = setInterval(tick, 200)
+    return () => clearInterval(ticker)
+  }, [room?.status, room?.gameMode, room?.headsUp?.turnStartedAt])
+
+  const headsUpWord =
+    hu && guesserId ? wordFor(hu, guesserId) : null
+  const turnLive = Boolean(
+    room?.gameMode === 'headsup' && room.status === 'question' && !clock.expired,
+  )
+
+  useWakeLock(Boolean(turnLive && isGuesser))
+
+  const decide = useCallback(
+    (got: boolean) => {
+      if (!room || !sessionPlayerId || !headsUpWord || clock.expired || clock.countdown > 0) return
+      const updated = recordCard(room, sessionPlayerId, headsUpWord, got)
+      setRoom(updated)
+      saveRoomToStorage(updated).catch(console.error)
+    },
+    [room, sessionPlayerId, headsUpWord, clock.expired, clock.countdown],
+  )
+
+  const tilt = useTilt({
+    enabled: Boolean(turnLive && isGuesser && clock.countdown === 0),
+    onGot: () => decide(true),
+    onPass: () => decide(false),
+  })
 
   // Loading progress bar animation (10 seconds)
   useEffect(() => {
@@ -134,7 +191,7 @@ function PlayerPageContent() {
               hostName: roomConfig.hostName,
               gameMode: roomConfig.gameMode || 'standard',
               theme: roomConfig.theme,
-              aiModel: roomConfig.aiModel || 'gpt-4o-mini',
+              aiModel: roomConfig.aiModel || 'gpt-5.6-luna',
               difficulty: roomConfig.difficulty,
               questionCount: roomConfig.questionCount,
               timePerQuestion: roomConfig.timePerQuestion,
@@ -227,7 +284,33 @@ function PlayerPageContent() {
       room.code,
       (updatedRoom) => {
         console.log('[🟢 PLAYER] 📥 Room update received!')
-        setRoom(updatedRoom)
+        setRoom((prev) => {
+          // During your own Heads Up turn your device is the source of truth for
+          // the cards you just decided; a slower broadcast must not undo them.
+          const me = sessionPlayerIdRef.current
+          if (
+            me &&
+            prev?.gameMode === 'headsup' &&
+            updatedRoom?.gameMode === 'headsup' &&
+            updatedRoom.status === 'question' &&
+            prev.status === 'question' &&
+            prev.headsUp?.turnStartedAt === updatedRoom.headsUp?.turnStartedAt &&
+            currentGuesserId(prev) === me
+          ) {
+            const mine = prev.headsUp?.results?.[me] ?? []
+            const incoming = updatedRoom.headsUp?.results?.[me] ?? []
+            if (mine.length > incoming.length && updatedRoom.headsUp) {
+              return {
+                ...updatedRoom,
+                headsUp: {
+                  ...updatedRoom.headsUp,
+                  results: { ...updatedRoom.headsUp.results, [me]: mine },
+                },
+              }
+            }
+          }
+          return updatedRoom
+        })
       },
       (error) => {
         console.error('[🟢 PLAYER] ❌ SSE error:', error)
@@ -292,6 +375,8 @@ function PlayerPageContent() {
         )}
 
         {/* Generating Questions View */}
+        {!sessionPlayerId && <ExternalGames />}
+
         {room && inGenerating && (
           <SectionCard title="🎮 Get Ready!" accent="from-primary/30 to-secondary/30">
             <div className="space-y-6">
@@ -322,6 +407,103 @@ function PlayerPageContent() {
                 <p className="text-lg font-semibold text-white/80 light:text-black/80">✨ Takes about 10 seconds</p>
                 <p className="text-sm text-white/60 light:text-black/60">Stay sharp! Game starts soon...</p>
               </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: the guesser's phone takes over the whole screen. */}
+        {room && room.gameMode === 'headsup' && inQuestion && hu && isGuesser && headsUpWord && !clock.expired && (
+          <HeadsUpCard
+            word={headsUpWord}
+            timeLeft={clock.timeLeft}
+            roundSeconds={hu.roundSeconds}
+            countdown={clock.countdown}
+            cardsLeft={Math.max(0, hu.words.length - hu.cardIndex - cardsFor(hu, sessionPlayerId || '').length)}
+            score={scoreFor(hu, sessionPlayerId || '')}
+            tiltStatus={tilt.status}
+            onEnableTilt={() => void tilt.request()}
+            onGot={() => decide(true)}
+            onPass={() => decide(false)}
+          />
+        )}
+
+        {/* Heads Up: the guesser ran out of deck. */}
+        {room && room.gameMode === 'headsup' && inQuestion && hu && isGuesser && !headsUpWord && (
+          <SectionCard title="Deck finished" accent="from-secondary/20 to-primary/20">
+            <p className="text-center text-lg">You got through the whole deck. Hand the phone back.</p>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: everyone else shouts clues. */}
+        {room && room.gameMode === 'headsup' && inQuestion && hu && !isGuesser && (
+          <SectionCard
+            title={clock.countdown > 0 ? 'Get ready' : `Give clues to ${guesserName(room)}`}
+            accent="from-primary/30 to-secondary/30"
+          >
+            {clock.countdown > 0 ? (
+              <div className="py-10 text-center">
+                <p className="text-7xl font-black text-primary">{clock.countdown}</p>
+                <p className="mt-4 text-white/60">{guesserName(room)} is putting the phone on their forehead</p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-4xl font-black leading-tight sm:text-6xl">{headsUpWord ?? 'Deck finished'}</p>
+                <p className="mt-4 text-sm text-white/60">Describe it without saying the word</p>
+                <div className="mt-6 flex items-center justify-center gap-6 text-sm">
+                  <span className="text-white/60">
+                    {guesserId ? scoreFor(hu, guesserId) : 0} correct
+                  </span>
+                  <span className={`text-3xl font-bold ${clock.timeLeft <= 10 ? 'text-danger' : 'text-secondary'}`}>
+                    {clock.timeLeft}s
+                  </span>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {/* Heads Up: turn summary, same on every device. */}
+        {room && room.gameMode === 'headsup' && room.status === 'results' && hu && guesserId && (
+          <SectionCard
+            title={`${guesserName(room)} scored ${room.lastGain[guesserId] ?? 0}`}
+            accent="from-secondary/20 to-primary/20"
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              {cardsFor(hu, guesserId).map((card, idx) => (
+                <div
+                  key={`${card.word}-${idx}`}
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+                    card.got ? 'bg-secondary/15 text-secondary' : 'bg-white/5 text-white/50 line-through'
+                  }`}
+                >
+                  <span>{card.word}</span>
+                  <span>{card.got ? '✓' : 'passed'}</span>
+                </div>
+              ))}
+              {cardsFor(hu, guesserId).length === 0 && <p className="text-sm text-white/60">No cards played.</p>}
+            </div>
+            <p className="mt-4 text-center text-sm text-white/60">Waiting for {room.hostName} to start the next turn…</p>
+          </SectionCard>
+        )}
+
+        {/* Heads Up: final leaderboard */}
+        {room && room.gameMode === 'headsup' && room.status === 'final' && (
+          <SectionCard title="Final leaderboard" accent="from-secondary/30 to-primary/30">
+            <div className="grid gap-2">
+              {sortedLeaderboard.map((p, idx) => (
+                <div
+                  key={p.id}
+                  className={`flex items-center justify-between rounded-xl px-4 py-3 ${
+                    idx === 0 ? 'bg-gradient-to-r from-secondary/25 to-primary/25' : 'bg-white/5'
+                  } ${p.id === sessionPlayerId ? 'ring-1 ring-primary/50' : ''}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-white/50">#{idx + 1}</span>
+                    <span className="font-semibold">{p.name}</span>
+                  </div>
+                  <span className="font-bold">{p.score}</span>
+                </div>
+              ))}
             </div>
           </SectionCard>
         )}
