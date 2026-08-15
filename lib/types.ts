@@ -1,3 +1,5 @@
+import type { SpaceteamState } from './spaceteam'
+
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'impossible'
 
 export const difficultyPoints: Record<Difficulty, number> = {
@@ -49,7 +51,7 @@ export type Response = {
   votedFor?: string // For personality mode: player ID that was voted for
 }
 
-export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom' | 'headsup'
+export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom' | 'headsup' | 'spaceteam'
 
 /** One card decided during a Heads Up turn. */
 export type HeadsUpCardResult = {
@@ -111,6 +113,8 @@ export type Room = {
   round?: number
   // Only used by the 'headsup' game mode.
   headsUp?: HeadsUpState
+  // Only used by the 'spaceteam' game mode. Written through its own endpoint.
+  spaceteam?: SpaceteamState
 }
 
 export const gameModes = [
@@ -119,6 +123,7 @@ export const gameModes = [
   { id: 'personality', name: '👥 Personality Mode', description: 'Vote on which player fits best (popular vote)' },
   { id: 'custom', name: '✨ Custom Theme', description: 'Create your own theme or let AI surprise you' },
   { id: 'headsup', name: '🙈 Heads Up!', description: 'Phone on your forehead, everyone shouts clues, tilt to score' },
+  { id: 'spaceteam', name: '🚀 Spaceteam', description: 'Co-op panic: your instructions are for somebody else’s panel' },
 ] as const
 
 export const themes = [

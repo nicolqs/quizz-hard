@@ -12,6 +12,7 @@ A Jackbox-style multiplayer quiz game with AI-generated questions. Built with **
 - 🎯 **Real-time multiplayer** - Play with friends across devices
 - 🙈 **Heads Up!** - Phone on your forehead, the room shouts clues, tilt to score
 - 🎮 **2 Player Games** - One phone between two people: ping pong, sumo, reaction duel
+- 🚀 **Spaceteam** - Co-op panic: your instructions are for somebody else's panel
 - 🤖 **AI-generated questions** - Powered by the OpenAI GPT-5.6 suite
 - 🎨 **Beautiful UI** - Modern design with Tailwind CSS
 - ⚡ **Fast updates** - Server-Sent Events for real-time synchronization
@@ -78,8 +79,9 @@ OPENAI_API_KEY=sk-your-key-here
 Or copy from `neon-schema.sql` in this repo.
 
 **Upgrading an existing database?** Run the files in `migrations/` in order. The
-latest one, `002_heads_up.sql`, adds the `heads_up` column the Heads Up! mode
-stores its state in.
+latest ones add the columns the new modes store their state in: `002_heads_up.sql`,
+`003_model_default.sql` (moves the model default to the GPT-5.6 suite) and
+`004_spaceteam.sql`.
 
 ### 5. Run Development Server
 
@@ -175,6 +177,25 @@ on a LAN, or on a laptop, the card falls back to tap controls: bottom half for
 correct, top half to pass. The screen is kept awake for the length of a turn
 where the browser supports it.
 
+### 🚀 Spaceteam
+Everyone gets a control panel of absurd machinery, and the instruction on your
+screen is almost always for a control on somebody else's phone. The only way
+through is to shout. Miss one and the hull takes damage; clear eight and the
+level speeds up.
+
+- Panels are generated per player with **globally unique names**, so a shout is
+  never ambiguous, though near-misses like *Warp Squibblator* and *Reticulated
+  Squibblator* are very much the point
+- 85% of instructions target another player's panel
+- Five levels, 12 seconds an instruction down to 5, 14 hull per miss
+
+**How the writes work.** Several players hammer controls while the host rewrites
+the game state on a timer, so Spaceteam does not use the whole-room save. It has
+its own endpoint with two single-statement operations against the JSONB column:
+one appends a control press to the queue, the other writes the host's state while
+keeping any press that arrived after the host read it. A read-modify-write of the
+whole room would drop presses on the floor.
+
 ### 🎮 2 Player Games (`/duel`)
 No room code, no network, no account. Lay one phone flat between two people:
 player one takes the top half (their score bar is rotated to face them), player
@@ -210,6 +231,8 @@ node scripts/smoke.mjs        # error handling when OPENAI_API_KEY is missing
 node scripts/multiplayer.mjs  # 4 devices through a full trivia round (calls OpenAI)
 node scripts/headsup.mjs      # 3 devices through two Heads Up turns (no API key needed)
 node scripts/duel.mjs         # all three 2-player games, scoring and match end (no API key needed)
+node scripts/spaceteam-logic.mjs  # the game rules, pure and deterministic, no browser
+node scripts/spaceteam.mjs        # 3 devices, cross-device instructions, and the write contract
 ```
 
 They stub `/api/rooms/[code]` with an in-process store, so no database is needed.

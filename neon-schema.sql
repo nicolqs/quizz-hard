@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   last_gain JSONB NOT NULL DEFAULT '{}'::jsonb,
   -- All Heads Up! state (deck, turn order, current card, per-player results)
   heads_up JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- All Spaceteam state (panels, instructions, hull, and the action queue)
+  spaceteam JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -9,6 +9,10 @@ import { fetchQuestionsFromChatGPT } from '@/lib/questions'
 import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
 import { aiModels, DEFAULT_AI_MODEL, difficultyPoints, emptyHeadsUpState, gameModes, ROUND_LENGTHS, themes, type Difficulty, type GameMode, type Player, type Room } from '@/lib/types'
 import { decks, getDeck, shuffleWords } from '@/lib/decks'
+import { advance as advanceShip, initialState as initialShip, MAX_HULL } from '@/lib/spaceteam'
+import { postSpaceteamAction, postSpaceteamState } from '@/lib/api'
+import { Panel } from '@/components/spaceteam/Panel'
+import { InstructionCard, ShipStatus } from '@/components/spaceteam/Bridge'
 import { advanceTurn, cardsFor, currentGuesserId, endTurn, guesserName, headsUpState, isLastTurn, mergeTurnResults, startTurn, turnClock } from '@/lib/headsup'
 import { generatePlayerId, generateRoomCode } from '@/lib/utils'
 import Link from 'next/link'
@@ -64,8 +68,41 @@ export default function AdminPage() {
   // Heads Up runs off the shared turnStartedAt rather than a local countdown, so
   // the host, the guesser and the clue-givers all see the same number.
   const hu = headsUpState(room)
+  const ship = room?.gameMode === 'spaceteam' ? room.spaceteam ?? null : null
   const roomRef = useRef<Room | null>(null)
   roomRef.current = room
+  /** Highest action already scored, so a re-delivered room cannot double-count. */
+  const processedSeq = useRef(0)
+
+  // The host device is the only one that advances the ship: it drains the
+  // actions everyone posted, expires overdue instructions and hands out new ones.
+  useEffect(() => {
+    if (!room || room.gameMode !== 'spaceteam' || room.status !== 'question') return
+
+    const timer = setInterval(() => {
+      const current = roomRef.current
+      const state = current?.spaceteam
+      if (!current || !state || state.outcome !== 'flying') return
+
+      const fresh = state.pending.filter((action) => action.seq > processedSeq.current)
+      const through = state.pending.reduce((max, action) => Math.max(max, action.seq), 0)
+      const names = Object.fromEntries(current.players.map((p) => [p.id, p.name]))
+      const { state: next, changed } = advanceShip({ ...state, pending: fresh }, Date.now(), names)
+      if (!changed) return
+
+      processedSeq.current = Math.max(processedSeq.current, through)
+      setRoom((prev) => (prev ? { ...prev, spaceteam: next } : prev))
+      void postSpaceteamState(current.code, next, through)
+
+      if (next.outcome !== 'flying') {
+        const finished: Room = { ...current, spaceteam: next, status: 'final' }
+        saveRoomToStorage(finished).catch(console.error)
+        setRoom(finished)
+      }
+    }, 400)
+
+    return () => clearInterval(timer)
+  }, [room?.gameMode, room?.status])
 
   useEffect(() => {
     if (!room || room.gameMode !== 'headsup' || room.status !== 'question') return
@@ -220,9 +257,25 @@ export default function AdminPage() {
     setRoom(updated)
   }
 
+  /** Spaceteam: build the ship, then let the host tick drive it. */
+  const startSpaceteam = async () => {
+    if (!room || !room.players.length) return
+    const seed = Math.floor(Math.random() * 1e9)
+    const ship = initialShip(room.players.map((p) => p.id), seed, Date.now())
+
+    const launched: Room = { ...room, status: 'question', round: (room.round ?? 0) + 1, spaceteam: ship }
+    await saveRoomToStorage(launched)
+    // The room upsert deliberately leaves the spaceteam column alone, so the
+    // opening state goes through the dedicated endpoint like every later tick.
+    await postSpaceteamState(room.code, ship, 0)
+    setRoom(launched)
+    processedSeq.current = 0
+  }
+
   const startGame = async () => {
     if (!room) return
     if (room.gameMode === 'headsup') return startHeadsUp()
+    if (room.gameMode === 'spaceteam') return startSpaceteam()
 
     setGenerationError(null)
 
@@ -959,7 +1012,9 @@ export default function AdminPage() {
                       : 'Summoning AI questions…'
                     : room.gameMode === 'headsup'
                       ? `Start Heads Up (${room.players.length} ${room.players.length === 1 ? 'turn' : 'turns'})`
-                      : 'Start Game'}
+                      : room.gameMode === 'spaceteam'
+                        ? `Launch (${room.players.length} aboard)`
+                        : 'Start Game'}
                 </button>
               </div>
             </SectionCard>
@@ -1001,6 +1056,47 @@ export default function AdminPage() {
               <p className="text-xs text-white/50 light:text-black/50 mt-1">Your players see this too!</p>
             </div>
           </SectionCard>
+        )}
+
+        {/* Spaceteam: the host has a panel like everyone else. */}
+        {room && room.gameMode === 'spaceteam' && ship && (inQuestion || room.status === 'final') && (
+          <div className="grid gap-3">
+            {ship.outcome === 'flying' ? (
+              <>
+                <InstructionCard instruction={ship.instructions[sessionPlayerId || ''] ?? null} />
+                <ShipStatus state={ship} />
+                <Panel
+                  controls={ship.panels[sessionPlayerId || ''] ?? []}
+                  onAction={(controlId, value) =>
+                    sessionPlayerId &&
+                    void postSpaceteamAction(room.code, {
+                      playerId: sessionPlayerId,
+                      controlId,
+                      value,
+                      seq: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+                    })
+                  }
+                />
+              </>
+            ) : (
+              <SectionCard
+                title={ship.outcome === 'won' ? '🎉 You made it' : '💥 The ship is gone'}
+                accent="from-primary/30 to-secondary/30"
+              >
+                <p className="text-center text-lg">
+                  {ship.outcome === 'won'
+                    ? `Cleared all ${ship.level} levels with ${Math.round((ship.hull / MAX_HULL) * 100)}% hull left.`
+                    : `Broke apart on level ${ship.level} after ${ship.completed} instructions.`}
+                </p>
+                <button
+                  onClick={startSpaceteam}
+                  className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-lg font-semibold text-white"
+                >
+                  Fly again
+                </button>
+              </SectionCard>
+            )}
+          </div>
         )}
 
         {/* Heads Up: live turn. The host screen is the room's shared view, so it

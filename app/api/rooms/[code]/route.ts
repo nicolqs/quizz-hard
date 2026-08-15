@@ -23,6 +23,7 @@ function rowToRoom(room: any) {
     responses: room.responses || {},
     lastGain: room.last_gain || {},
     headsUp: room.heads_up && Object.keys(room.heads_up).length > 0 ? room.heads_up : undefined,
+    spaceteam: room.spaceteam && Object.keys(room.spaceteam).length > 0 ? room.spaceteam : undefined,
   }
 }
 
@@ -63,7 +64,7 @@ export async function PUT(
         code, host_name, game_mode, theme, generated_theme, ai_model,
         difficulty, question_count, time_per_question,
         players, questions, asked_questions, round,
-        current_index, status, responses, last_gain, heads_up
+        current_index, status, responses, last_gain, heads_up, spaceteam
       ) VALUES (
         ${roomCode},
         ${room.hostName},
@@ -82,7 +83,8 @@ export async function PUT(
         ${room.status},
         ${JSON.stringify(room.responses || {})},
         ${JSON.stringify(room.lastGain || {})},
-        ${JSON.stringify(room.headsUp || {})}
+        ${JSON.stringify(room.headsUp || {})},
+        ${JSON.stringify(room.spaceteam || {})}
       )
       ON CONFLICT (code) DO UPDATE SET
         host_name = EXCLUDED.host_name,
@@ -102,6 +104,8 @@ export async function PUT(
         responses = EXCLUDED.responses,
         last_gain = EXCLUDED.last_gain,
         heads_up = EXCLUDED.heads_up,
+        -- Spaceteam state is written through its own endpoint so concurrent
+        -- control presses are never clobbered by a whole-room save.
         updated_at = NOW()
     `
 

@@ -7,6 +7,10 @@ import { subscribeToRoom } from '@/lib/api'
 import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
 import { difficultyPoints, type Player, type Room } from '@/lib/types'
 import { HeadsUpCard } from '@/components/HeadsUpCard'
+import { Panel } from '@/components/spaceteam/Panel'
+import { InstructionCard, ShipStatus } from '@/components/spaceteam/Bridge'
+import { postSpaceteamAction } from '@/lib/api'
+import { MAX_HULL } from '@/lib/spaceteam'
 import { useTilt } from '@/hooks/useTilt'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import {
@@ -410,6 +414,44 @@ function PlayerPageContent() {
             </div>
           </SectionCard>
         )}
+
+        {/* Spaceteam: your panel, and an instruction that is probably not yours. */}
+        {room && room.gameMode === 'spaceteam' && room.spaceteam && sessionPlayerId &&
+          (inQuestion || room.status === 'final') && (
+            <div className="grid gap-3">
+              {room.spaceteam.outcome === 'flying' ? (
+                <>
+                  <InstructionCard instruction={room.spaceteam.instructions[sessionPlayerId] ?? null} />
+                  <ShipStatus state={room.spaceteam} compact />
+                  <Panel
+                    controls={room.spaceteam.panels[sessionPlayerId] ?? []}
+                    onAction={(controlId, value) =>
+                      void postSpaceteamAction(room.code, {
+                        playerId: sessionPlayerId,
+                        controlId,
+                        value,
+                        seq: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+                      })
+                    }
+                  />
+                </>
+              ) : (
+                <SectionCard
+                  title={room.spaceteam.outcome === 'won' ? '🎉 You made it' : '💥 The ship is gone'}
+                  accent="from-primary/30 to-secondary/30"
+                >
+                  <p className="text-center text-lg">
+                    {room.spaceteam.outcome === 'won'
+                      ? `Cleared all ${room.spaceteam.level} levels with ${Math.round((room.spaceteam.hull / MAX_HULL) * 100)}% hull left.`
+                      : `Broke apart on level ${room.spaceteam.level} after ${room.spaceteam.completed} instructions.`}
+                  </p>
+                  <p className="mt-2 text-center text-sm text-white/60">
+                    Waiting for {room.hostName} to launch again…
+                  </p>
+                </SectionCard>
+              )}
+            </div>
+          )}
 
         {/* Heads Up: the guesser's phone takes over the whole screen. */}
         {room && room.gameMode === 'headsup' && inQuestion && hu && isGuesser && headsUpWord && !clock.expired && (

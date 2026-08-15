@@ -156,3 +156,26 @@ export function subscribeToRoom(
 }
 
 
+
+// ---------------------------------------------------------------- Spaceteam
+// Control presses and host state both bypass the whole-room PUT so that
+// simultaneous writers cannot clobber each other. See the route for why.
+
+export async function postSpaceteamAction(
+  code: string,
+  action: { playerId: string; controlId: string; value: number; seq: number },
+): Promise<void> {
+  await fetch(`/api/rooms/${code}/spaceteam`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'action', ...action }),
+  }).catch((error) => console.warn('[API] spaceteam action failed:', error))
+}
+
+export async function postSpaceteamState(code: string, state: unknown, through: number): Promise<void> {
+  await fetch(`/api/rooms/${code}/spaceteam`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'state', state, through }),
+  }).catch((error) => console.warn('[API] spaceteam state failed:', error))
+}

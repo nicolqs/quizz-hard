@@ -32,6 +32,8 @@ export async function GET(
           round: room.round ?? 0,
           currentIndex: room.current_index || 0,
           status: room.status,
+          headsUp: room.heads_up && Object.keys(room.heads_up).length > 0 ? room.heads_up : undefined,
+          spaceteam: room.spaceteam && Object.keys(room.spaceteam).length > 0 ? room.spaceteam : undefined,
           responses: room.responses || {},
           lastGain: room.last_gain || {},
         }
