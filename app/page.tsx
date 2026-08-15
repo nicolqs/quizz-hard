@@ -1,6 +1,5 @@
 'use client'
 
-import { ExternalGames } from '@/components/ExternalGames'
 import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
@@ -380,7 +379,6 @@ function PlayerPageContent() {
         )}
 
         {/* Generating Questions View */}
-        {!sessionPlayerId && <ExternalGames />}
 
         {room && inGenerating && (
           <SectionCard title="🎮 Get Ready!" accent="from-primary/30 to-secondary/30">

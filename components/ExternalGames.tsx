@@ -1,12 +1,8 @@
 import Link from 'next/link'
 import { SectionCard } from './SectionCard'
 
-// Games that live somewhere else but belong in the same night. They open in a
-// new tab so an in-progress room is never lost.
-//
-// Akinator points at the production alias rather than the team-scoped
-// *-nicolqs-projects domain, which Vercel puts behind a login wall for anyone
-// who is not signed in to the account.
+// Nico's other games. They live outside this app, so they open in a new tab and
+// an in-progress room is never lost.
 export const externalGames = [
   {
     name: 'Uno',
@@ -17,7 +13,7 @@ export const externalGames = [
   {
     name: 'Le Génie',
     emoji: '🧞',
-    href: 'https://akinator-iota.vercel.app',
+    href: 'https://akinator-nicolqs-projects.vercel.app',
     blurb: 'Think of anyone and let the genie guess it. Français, English, Español',
   },
 ]
@@ -38,7 +34,7 @@ export function ExternalGames() {
         </span>
       </Link>
 
-      <p className="mt-4 text-sm text-white/70">Not part of this app. These open in a new tab.</p>
+      <p className="mt-4 text-sm text-white/70">More of Nico&apos;s games. These open in a new tab.</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {externalGames.map((game) => (
           <a
