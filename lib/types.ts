@@ -1,4 +1,5 @@
 import type { SpaceteamState } from './spaceteam'
+import type { SeaBattleState } from './seabattle'
 
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'impossible'
 
@@ -51,7 +52,7 @@ export type Response = {
   votedFor?: string // For personality mode: player ID that was voted for
 }
 
-export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom' | 'headsup' | 'spaceteam'
+export type GameMode = 'standard' | 'emoji' | 'personality' | 'custom' | 'headsup' | 'spaceteam' | 'seabattle'
 
 /** One card decided during a Heads Up turn. */
 export type HeadsUpCardResult = {
@@ -115,6 +116,8 @@ export type Room = {
   headsUp?: HeadsUpState
   // Only used by the 'spaceteam' game mode. Written through its own endpoint.
   spaceteam?: SpaceteamState
+  // Public half of the 'seabattle' mode. The fleets live server-side only.
+  seaBattle?: SeaBattleState
 }
 
 export const gameModes = [
@@ -124,6 +127,7 @@ export const gameModes = [
   { id: 'custom', name: '✨ Custom Theme', description: 'Create your own theme or let AI surprise you' },
   { id: 'headsup', name: '🙈 Heads Up!', description: 'Phone on your forehead, everyone shouts clues, tilt to score' },
   { id: 'spaceteam', name: '🚀 Spaceteam', description: 'Co-op panic: your instructions are for somebody else’s panel' },
+  { id: 'seabattle', name: '🚢 Sea Battle', description: 'Two hidden fleets, alternating shots, a hit buys another go' },
 ] as const
 
 export const themes = [

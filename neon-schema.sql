@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS rooms (
   heads_up JSONB NOT NULL DEFAULT '{}'::jsonb,
   -- All Spaceteam state (panels, instructions, hull, and the action queue)
   spaceteam JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- Sea Battle: public state (turn, shots) and the private fleets. The boards
+  -- column is never sent to a client except its own owner.
+  sea_battle JSONB NOT NULL DEFAULT '{}'::jsonb,
+  sea_battle_boards JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -12,6 +12,7 @@ import { decks, getDeck, shuffleWords } from '@/lib/decks'
 import { advance as advanceShip, initialState as initialShip, MAX_HULL } from '@/lib/spaceteam'
 import { postSpaceteamAction, postSpaceteamState } from '@/lib/api'
 import { Panel } from '@/components/spaceteam/Panel'
+import { SeaBattle } from '@/components/seabattle/SeaBattle'
 import { InstructionCard, ShipStatus } from '@/components/spaceteam/Bridge'
 import { advanceTurn, cardsFor, currentGuesserId, endTurn, guesserName, headsUpState, isLastTurn, mergeTurnResults, startTurn, turnClock } from '@/lib/headsup'
 import { generatePlayerId, generateRoomCode } from '@/lib/utils'
@@ -272,10 +273,34 @@ export default function AdminPage() {
     processedSeq.current = 0
   }
 
+  /** Sea Battle: the server owns the fleets, so it also opens the game. */
+  const startSeaBattle = async () => {
+    if (!room) return
+    if (room.players.length < 2) {
+      setGenerationError('Sea Battle is a duel: you need a second player in the room.')
+      return
+    }
+    setGenerationError(null)
+    const res = await fetch(`/api/rooms/${room.code}/sea-battle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: 'start', playerIds: room.players.map((p) => p.id) }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setGenerationError(data?.error ?? 'Could not start the battle')
+      return
+    }
+    const launched: Room = { ...room, status: 'question', seaBattle: data.state }
+    await saveRoomToStorage(launched)
+    setRoom(launched)
+  }
+
   const startGame = async () => {
     if (!room) return
     if (room.gameMode === 'headsup') return startHeadsUp()
     if (room.gameMode === 'spaceteam') return startSpaceteam()
+    if (room.gameMode === 'seabattle') return startSeaBattle()
 
     setGenerationError(null)
 
@@ -1014,7 +1039,9 @@ export default function AdminPage() {
                       ? `Start Heads Up (${room.players.length} ${room.players.length === 1 ? 'turn' : 'turns'})`
                       : room.gameMode === 'spaceteam'
                         ? `Launch (${room.players.length} aboard)`
-                        : 'Start Game'}
+                        : room.gameMode === 'seabattle'
+                          ? 'Start the battle'
+                          : 'Start Game'}
                 </button>
               </div>
             </SectionCard>
@@ -1057,6 +1084,18 @@ export default function AdminPage() {
             </div>
           </SectionCard>
         )}
+
+        {/* Sea Battle: the host takes one of the two seats. */}
+        {room && room.gameMode === 'seabattle' && room.seaBattle && sessionPlayerId &&
+          (inQuestion || room.status === 'final') && (
+            <SeaBattle
+              code={room.code}
+              playerId={sessionPlayerId}
+              state={room.seaBattle}
+              names={Object.fromEntries(room.players.map((p) => [p.id, p.name]))}
+              onState={(next) => setRoom((prev) => (prev ? { ...prev, seaBattle: next } : prev))}
+            />
+          )}
 
         {/* Spaceteam: the host has a panel like everyone else. */}
         {room && room.gameMode === 'spaceteam' && ship && (inQuestion || room.status === 'final') && (

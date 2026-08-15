@@ -8,6 +8,7 @@ import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
 import { difficultyPoints, type Player, type Room } from '@/lib/types'
 import { HeadsUpCard } from '@/components/HeadsUpCard'
 import { Panel } from '@/components/spaceteam/Panel'
+import { SeaBattle } from '@/components/seabattle/SeaBattle'
 import { InstructionCard, ShipStatus } from '@/components/spaceteam/Bridge'
 import { postSpaceteamAction } from '@/lib/api'
 import { MAX_HULL } from '@/lib/spaceteam'
@@ -414,6 +415,18 @@ function PlayerPageContent() {
             </div>
           </SectionCard>
         )}
+
+        {/* Sea Battle: two hidden fleets. Your own board never leaves the server. */}
+        {room && room.gameMode === 'seabattle' && room.seaBattle && sessionPlayerId &&
+          (inQuestion || room.status === 'final') && (
+            <SeaBattle
+              code={room.code}
+              playerId={sessionPlayerId}
+              state={room.seaBattle}
+              names={Object.fromEntries(room.players.map((p) => [p.id, p.name]))}
+              onState={(next) => setRoom((prev) => (prev ? { ...prev, seaBattle: next } : prev))}
+            />
+          )}
 
         {/* Spaceteam: your panel, and an instruction that is probably not yours. */}
         {room && room.gameMode === 'spaceteam' && room.spaceteam && sessionPlayerId &&

@@ -34,6 +34,8 @@ export async function GET(
           status: room.status,
           headsUp: room.heads_up && Object.keys(room.heads_up).length > 0 ? room.heads_up : undefined,
           spaceteam: room.spaceteam && Object.keys(room.spaceteam).length > 0 ? room.spaceteam : undefined,
+          // Public Sea Battle state only. sea_battle_boards is never returned here.
+          seaBattle: room.sea_battle && Object.keys(room.sea_battle).length > 0 ? room.sea_battle : undefined,
           responses: room.responses || {},
           lastGain: room.last_gain || {},
         }

@@ -13,6 +13,7 @@ A Jackbox-style multiplayer quiz game with AI-generated questions. Built with **
 - 🙈 **Heads Up!** - Phone on your forehead, the room shouts clues, tilt to score
 - 🎮 **2 Player Games** - One phone between two people: ping pong, sumo, reaction duel
 - 🚀 **Spaceteam** - Co-op panic: your instructions are for somebody else's panel
+- 🚢 **Sea Battle** - Two hidden fleets, alternating shots, a hit buys another go
 - 🤖 **AI-generated questions** - Powered by the OpenAI GPT-5.6 suite
 - 🎨 **Beautiful UI** - Modern design with Tailwind CSS
 - ⚡ **Fast updates** - Server-Sent Events for real-time synchronization
@@ -80,8 +81,8 @@ Or copy from `neon-schema.sql` in this repo.
 
 **Upgrading an existing database?** Run the files in `migrations/` in order. The
 latest ones add the columns the new modes store their state in: `002_heads_up.sql`,
-`003_model_default.sql` (moves the model default to the GPT-5.6 suite) and
-`004_spaceteam.sql`.
+`003_model_default.sql` (moves the model default to the GPT-5.6 suite),
+`004_spaceteam.sql` and `005_sea_battle.sql`.
 
 ### 5. Run Development Server
 
@@ -196,6 +197,19 @@ one appends a control press to the queue, the other writes the host's state whil
 keeping any press that arrived after the host read it. A read-modify-write of the
 whole room would drop presses on the floor.
 
+### 🚢 Sea Battle
+Battleship for two, from the Plato pack. Place five ships that may not touch,
+then take turns firing on an 8x8 grid. A hit buys another shot, a miss hands the
+turn over, and sinking the last ship ends it.
+
+**Ship positions never reach the opponent's browser.** They live in
+`rooms.sea_battle_boards`, a column no room route and no SSE frame returns. You
+can fetch your own fleet and nobody else's, shots are resolved server-side and
+come back as hit, miss or sunk, and the server re-validates a submitted fleet
+rather than trusting the client. Both fleets are revealed once somebody wins.
+The end-to-end test asserts all of that, including that firing out of turn is
+refused.
+
 ### 🎮 2 Player Games (`/duel`)
 No room code, no network, no account. Lay one phone flat between two people:
 player one takes the top half (their score bar is rotated to face them), player
@@ -233,6 +247,9 @@ node scripts/headsup.mjs      # 3 devices through two Heads Up turns (no API key
 node scripts/duel.mjs         # all three 2-player games, scoring and match end (no API key needed)
 node scripts/spaceteam-logic.mjs  # the game rules, pure and deterministic, no browser
 node scripts/spaceteam.mjs        # 3 devices, cross-device instructions, and the write contract
+node scripts/seabattle-logic.mjs  # placement, firing, turn and win rules, pure
+node scripts/seabattle.mjs        # 2 devices against a REAL database (moves are server-resolved)
+node scripts/live-multiplayer.mjs # no stubs at all: real Postgres, real SSE, real deployment
 ```
 
 They stub `/api/rooms/[code]` with an in-process store, so no database is needed.
