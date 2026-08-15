@@ -6,12 +6,14 @@
 ALTER TABLE rooms ALTER COLUMN ai_model SET DEFAULT 'gpt-5.6-luna';
 
 -- Point existing rooms at a 5.6 equivalent so replaying an old room does not call
--- a model that is no longer offered. Anything mid-tier maps to Terra; everything
--- else lands on Luna, because an unrecognised id must never silently upgrade a
--- party game to the most expensive model on the account.
+-- a model that is no longer offered.
+--
+-- Only the deliberate flagship choices move to Terra. Everything else, including
+-- every budget model and any id this migration does not recognise, lands on Luna:
+-- a migration must never quietly make an old party game more expensive to replay,
+-- and Sol is a choice you make in the UI, not something you inherit.
 UPDATE rooms SET ai_model = 'gpt-5.6-terra'
-  WHERE ai_model NOT LIKE 'gpt-5.6-%'
-    AND (ai_model LIKE '%mini%' OR ai_model LIKE 'o4%' OR ai_model IN ('gpt-4.1', 'gpt-5.1', 'gpt-5.4'));
+  WHERE ai_model IN ('gpt-4.1', 'gpt-5.1', 'gpt-5.4', 'gpt-5', 'gpt-4o', 'gpt-5-mini', 'gpt-5.1-mini', 'o4-mini');
 
 UPDATE rooms SET ai_model = 'gpt-5.6-luna'
   WHERE ai_model NOT LIKE 'gpt-5.6-%';
