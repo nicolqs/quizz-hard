@@ -7,9 +7,12 @@ dist
 .dist
 *.tsbuildinfo
 
-# Environment variables
-.env
-.env*.local
+# Environment variables.
+# Ignore every .env variant, not just .env and .env*.local: `vercel env pull`
+# writes real credentials to whatever filename you give it, and one `git add -A`
+# on a public repo is all it takes.
+.env*
+!.env.example
 
 # Debug logs
 npm-debug.log*
