@@ -14,11 +14,17 @@ import { postSpaceteamAction, postSpaceteamState } from '@/lib/api'
 import { Panel } from '@/components/spaceteam/Panel'
 import { SeaBattle } from '@/components/seabattle/SeaBattle'
 import { InstructionCard, ShipStatus } from '@/components/spaceteam/Bridge'
-import { advanceTurn, cardsFor, currentGuesserId, endTurn, guesserName, headsUpState, isLastTurn, mergeTurnResults, startTurn, turnClock } from '@/lib/headsup'
+import { advanceTurn, cardsFor, currentGuesserId, endTurn, guesserName, headsUpState, isLastTurn, mergeTurnResults, recordCard, scoreFor, startTurn, turnClock, wordFor } from '@/lib/headsup'
+import { HeadsUpCard } from '@/components/HeadsUpCard'
+import { useTilt } from '@/hooks/useTilt'
 import { generatePlayerId, generateRoomCode } from '@/lib/utils'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+function inQuestionStatus(room: Room | null): boolean {
+  return room?.status === 'question'
+}
 
 export default function AdminPage() {
   const router = useRouter()
@@ -69,6 +75,34 @@ export default function AdminPage() {
   // Heads Up runs off the shared turnStartedAt rather than a local countdown, so
   // the host, the guesser and the clue-givers all see the same number.
   const hu = headsUpState(room)
+  const [headsUpClock, setHeadsUpClock] = useState({ countdown: 0, timeLeft: 0, expired: false })
+
+  // The host is a player like any other, so their turn as guesser has to work
+  // on this screen. It did not: the admin view told them to hold the phone to
+  // their forehead and then gave them nothing to score with, no tilt and no
+  // tap, so the host banked zero on their own turn every single game.
+  const hostIsGuesser = Boolean(
+    room?.gameMode === 'headsup' && inQuestionStatus(room) && currentGuesserId(room) === sessionPlayerId,
+  )
+  const hostWord = hu && sessionPlayerId ? wordFor(hu, sessionPlayerId) : null
+
+  const decideHeadsUp = useCallback(
+    (got: boolean) => {
+      const current = roomRef.current
+      if (!current || !sessionPlayerId || !hostWord) return
+      if (headsUpClock.expired || headsUpClock.countdown > 0) return
+      const updated = recordCard(current, sessionPlayerId, hostWord, got)
+      setRoom(updated)
+      saveRoomToStorage(updated).catch(console.error)
+    },
+    [sessionPlayerId, hostWord, headsUpClock.expired, headsUpClock.countdown],
+  )
+
+  const hostTilt = useTilt({
+    enabled: Boolean(hostIsGuesser && !headsUpClock.expired && headsUpClock.countdown === 0),
+    onGot: () => decideHeadsUp(true),
+    onPass: () => decideHeadsUp(false),
+  })
   const ship = room?.gameMode === 'spaceteam' ? room.spaceteam ?? null : null
   const roomRef = useRef<Room | null>(null)
   roomRef.current = room
@@ -110,6 +144,10 @@ export default function AdminPage() {
     const tick = () => {
       const { countdown, timeLeft: left, expired } = turnClock(room.headsUp ?? null)
       setTimeLeft(countdown > 0 ? room.headsUp?.roundSeconds ?? 0 : left)
+      // The guessing host needs the lead-in and the expiry too, not just the
+      // number on screen, so its forehead card can arm and disarm like a
+      // player's does.
+      setHeadsUpClock({ countdown, timeLeft: left, expired })
       if (expired) void finishHeadsUpTurn()
     }
     tick()
@@ -1176,10 +1214,25 @@ export default function AdminPage() {
             accent="from-primary/30 to-secondary/30"
           >
             {currentGuesserId(room) === sessionPlayerId ? (
-              <div className="py-8 text-center">
-                <p className="text-2xl font-bold">You are guessing.</p>
-                <p className="mt-2 text-white/60">Pick up your phone, hold it to your forehead, and do not look at this screen.</p>
-              </div>
+              hostWord ? (
+                <HeadsUpCard
+                  word={hostWord}
+                  timeLeft={headsUpClock.timeLeft}
+                  roundSeconds={hu.roundSeconds}
+                  countdown={headsUpClock.countdown}
+                  cardsLeft={Math.max(0, hu.words.length - hu.cardIndex - cardsFor(hu, sessionPlayerId || '').length)}
+                  score={scoreFor(hu, sessionPlayerId || '')}
+                  tiltStatus={hostTilt.status}
+                  onEnableTilt={() => void hostTilt.request()}
+                  onGot={() => decideHeadsUp(true)}
+                  onPass={() => decideHeadsUp(false)}
+                />
+              ) : (
+                <div className="py-8 text-center">
+                  <p className="text-2xl font-bold">Deck finished</p>
+                  <p className="mt-2 text-white/60">You got through the whole deck. Hand the phone back.</p>
+                </div>
+              )
             ) : (
               <div className="text-center">
                 <p className="text-sm uppercase tracking-[0.3em] text-white/60">Shout clues for</p>

@@ -113,12 +113,20 @@ export function SeaBattle({
   // ------------------------------------------------------------------ result
   if (state.winner) {
     const won = state.winner === playerId
+    const loserId = state.playerIds.find((id) => id !== state.winner)
+    // Everyone not in the duel is watching it. Telling the rest of the room
+    // "You are sunk" over a battle they had no fleet in was the old behaviour:
+    // this branch ran before the spectating one, so it caught them too.
+    const headline = !isPlayer ? '🏴 Battle over' : won ? '🎉 Fleet destroyed' : '💥 You are sunk'
+    const detail = !isPlayer
+      ? `${names[state.winner] ?? 'Someone'} sank ${names[loserId ?? ''] ?? 'the other fleet'}.`
+      : won
+        ? 'You found every ship first.'
+        : `${names[state.winner] ?? 'Your opponent'} got there first.`
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-        <p className="text-3xl font-black">{won ? '🎉 Fleet destroyed' : '💥 You are sunk'}</p>
-        <p className="mt-2 text-white/70">
-          {won ? 'You found every ship first.' : `${names[state.winner] ?? 'They'} got there first.`}
-        </p>
+        <p className="text-3xl font-black">{headline}</p>
+        <p className="mt-2 text-white/70">{detail}</p>
         <p className="mt-1 text-sm text-white/50">
           {shotsBy(state, state.winner).length} shots fired to finish it.
         </p>
