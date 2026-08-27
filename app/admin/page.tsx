@@ -359,8 +359,27 @@ export default function AdminPage() {
   }
 
   const endQuestion = useCallback(async () => {
-    setRoom((prev) => {
-      if (!prev || prev.status !== 'question' || !prev.questions.length) return prev
+    // Score from the database, not from this browser's copy of the room.
+    //
+    // Answers are written straight to the server by each player's phone and
+    // reach the host over SSE a moment later. Scoring off the host's local
+    // snapshot meant any answer still in flight when the timer hit zero was not
+    // counted - and worse, the save at the end of this function wrote that
+    // snapshot back, deleting the answer from the database too. A player could
+    // answer every question, correctly, and score nothing.
+    const current = roomRef.current
+    if (!current || current.status !== 'question') return
+    const fresh = await getRoomFromStorage(current.code)
+    const authoritative = fresh?.responses ?? current.responses
+
+    setRoom((prevLocal) => {
+      if (!prevLocal || prevLocal.status !== 'question' || !prevLocal.questions.length) return prevLocal
+      // Anything this browser has that the server has not caught up on yet
+      // (the host's own answer, typically) stays in.
+      const prev: Room = {
+        ...prevLocal,
+        responses: { ...prevLocal.responses, ...authoritative },
+      }
       const q = prev.questions[prev.currentIndex]
       if (!q) return prev
 
