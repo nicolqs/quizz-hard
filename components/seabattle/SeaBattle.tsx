@@ -134,7 +134,8 @@ export function SeaBattle({
           {names[state.playerIds[0]]} vs {names[state.playerIds[1]]}
         </p>
         <p className="mt-2 text-sm">
-          Sea Battle is a duel, so you are watching this one. {state.shots.length} shots so far.
+          Sea Battle is a duel, so you are watching this one. {state.shots.length}{' '}
+          {state.shots.length === 1 ? 'shot' : 'shots'} so far.
         </p>
       </div>
     )
@@ -227,7 +228,7 @@ export function SeaBattle({
             ? `Waiting for ${names[opponentId] ?? 'your opponent'} to place their fleet…`
             : myTurn
               ? 'Your shot'
-              : `${names[opponentId] ?? 'They'} are aiming…`}
+              : `${names[opponentId] ?? 'Your opponent'} is aiming…`}
         </p>
         {state.shots.length > 0 && (
           <p className="mt-1 text-xs text-white/60">{lastShotSummary(state, names)}</p>
