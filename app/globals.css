@@ -3,16 +3,61 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    /* Stops Safari inflating text of its own accord when the phone rotates. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply text-slate-50;
     background: radial-gradient(circle at top, #0e7490, #0f172a 45%, #020617);
+    background-attachment: fixed;
     min-height: 100vh;
+    /* dvh tracks the address bar as it hides and shows, so the gradient no
+       longer jumps a bar's height mid-scroll. Declared after the vh fallback. */
+    min-height: 100dvh;
+    /* Keeps a scroll that runs off the end of a game screen from rubber-banding
+       the whole page (and, on Chrome Android, triggering pull-to-refresh). */
+    overscroll-behavior-y: none;
   }
-  
+
   body.light {
     @apply text-slate-900;
     background: radial-gradient(circle at top, #e0f2fe, #f8fafc 45%, #ffffff);
   }
+
+  /* Double-tap-to-zoom is the wrong gesture for a game whose whole interaction
+     is tapping fast - firing at a Sea Battle cell twice in a row zoomed the page
+     instead of firing twice. manipulation drops double-tap and the 300ms click
+     delay with it, and leaves pinch zoom alone. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  /* No grey flash box, and no long-press magnifier / "Copy" callout on controls
+     people hold down. Inputs stay selectable below. */
+  a,
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
 }
 
 :root {
@@ -114,6 +159,40 @@
 
 .light .border-white\/5 {
   border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* viewportFit: 'cover' paints under the notch and the home indicator, so the
+   page has to pad itself back out. Applied to the scroll container rather than
+   body so the background gradient still bleeds edge to edge. */
+.min-h-screen {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Every control is at least a 44px target, Apple's minimum. The small ones were
+   the Sea Battle cells and the Spaceteam dial segments; both sit in grids that
+   size themselves, so this only lifts the ones that were genuinely too small. */
+@media (pointer: coarse) {
+  button:not([class*='aspect-square']):not([class*='h-']),
+  a[role='button'] {
+    min-height: 44px;
+  }
+}
+
+/* iOS zooms the entire page in when a focused field is under 16px, and never
+   zooms back out - which is the other half of the "it zooms in weirdly" report.
+   Several admin fields were text-sm. The floor lives here rather than in @layer
+   base because a utility class outranks a bare element selector. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea,
+  input[class],
+  select[class],
+  textarea[class] {
+    font-size: max(16px, 1em);
+  }
 }
 
 .fade-card {
