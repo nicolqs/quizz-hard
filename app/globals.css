@@ -180,17 +180,16 @@
   }
 }
 
-/* iOS zooms the entire page in when a focused field is under 16px, and never
-   zooms back out - which is the other half of the "it zooms in weirdly" report.
-   Several admin fields were text-sm. The floor lives here rather than in @layer
-   base because a utility class outranks a bare element selector. */
+/* iOS zooms the whole page in when a focused field is under 16px, and never
+   zooms back out - the other half of the "it zooms in weirdly" report. Several
+   admin controls inherit text-sm from an ancestor, so the floor is applied to
+   any control that does not set its own size; the ones that do (the 18px room
+   code, and the three bumped to text-base sm:text-sm) are left alone rather
+   than being flattened to 16px. */
 @media (max-width: 767px) {
-  input,
-  select,
-  textarea,
-  input[class],
-  select[class],
-  textarea[class] {
+  input:not([class*='text-']),
+  select:not([class*='text-']),
+  textarea:not([class*='text-']) {
     font-size: max(16px, 1em);
   }
 }

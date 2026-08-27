@@ -729,7 +729,7 @@ export default function AdminPage() {
               <div>
                 <label className="text-sm text-slate-300">AI Model</label>
                 <select
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-base sm:text-sm"
                   value={aiModel}
                   onChange={(e) => setAiModel(e.target.value)}
                 >
@@ -934,7 +934,7 @@ export default function AdminPage() {
 
               <label className="text-sm text-slate-300">AI Model</label>
               <select
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-base sm:text-sm"
                 value={aiModel}
                 onChange={(e) => setAiModel(e.target.value)}
               >
@@ -1053,7 +1053,7 @@ export default function AdminPage() {
                   <input
                     readOnly
                     value={shareLink}
-                    className="flex-1 bg-transparent text-sm font-mono text-white/80 outline-none"
+                    className="flex-1 bg-transparent text-base sm:text-sm font-mono text-white/80 outline-none"
                   />
                   <button
                     onClick={copyShareLink}
