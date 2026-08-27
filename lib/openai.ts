@@ -4,6 +4,22 @@
 // max_completion_tokens, older chat models want max_tokens) or on the error
 // contract the client and the smoke test rely on.
 
+import { aiModels, DEFAULT_AI_MODEL } from './types'
+
+/**
+ * Pin the model to the list the UI offers.
+ *
+ * The generate routes are unauthenticated and take `aiModel` straight from the
+ * request body, so an arbitrary id went through to OpenAI as-is. On a public
+ * repo that is an open invitation to bill the owner for whatever the most
+ * expensive model of the day happens to be. Anything unrecognised falls back to
+ * the cheapest option rather than erroring, so a stale client keeps working.
+ */
+export function resolveModel(requested: unknown): string {
+  const allowed = aiModels.some((m) => m.id === requested)
+  return allowed ? (requested as string) : DEFAULT_AI_MODEL
+}
+
 export class LlmConfigError extends Error {}
 export class LlmCallError extends Error {}
 

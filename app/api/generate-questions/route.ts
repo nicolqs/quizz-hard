@@ -6,8 +6,10 @@ import {
   sanitizeText,
   temperatureParam,
   tokenLimitParam,
+  resolveModel,
 } from '@/lib/openai'
 import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit, rateLimitMessage } from '@/lib/ratelimit'
 
 // Diversity hints to push the model into a different corner of the theme each call.
 const ANGLES = [
@@ -313,7 +315,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Count must be between 1 and 20' }, { status: 400 })
     }
 
-    const modelToUse = aiModel || 'gpt-5.6-luna'
+    const limit = await checkRateLimit(request)
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: rateLimitMessage(limit.scope), code: 'RATE_LIMITED' },
+        { status: 429 },
+      )
+    }
+
+    // Pinned to the offered list: aiModel arrives from an unauthenticated body.
+    const modelToUse = resolveModel(aiModel)
     const mode: GameMode = gameMode || 'standard'
 
     console.log('[Questions API] Generating', count, difficulty, 'questions about', theme, 'using', modelToUse, 'mode:', mode, '| avoid:', (askedQuestions || []).length)

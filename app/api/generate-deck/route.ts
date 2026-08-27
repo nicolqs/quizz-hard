@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { chatCompletion, LlmCallError, LlmConfigError, sanitizeText } from '@/lib/openai'
+import { chatCompletion, LlmCallError, LlmConfigError, resolveModel, sanitizeText } from '@/lib/openai'
+import { checkRateLimit, rateLimitMessage } from '@/lib/ratelimit'
 
 // A Heads Up! deck is just a list of guessable things. No choices, no correct
 // answer: the room shouts clues and the guesser says the word out loud.
@@ -44,8 +45,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required field: theme' }, { status: 400 })
     }
 
+    const limit = await checkRateLimit(request)
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: rateLimitMessage(limit.scope), code: 'RATE_LIMITED' },
+        { status: 429 },
+      )
+    }
+
     const wanted = Math.min(Math.max(Number(count) || 40, 10), MAX_WORDS)
-    const model = aiModel || 'gpt-5.6-luna'
+    // Pinned to the offered list: aiModel arrives from an unauthenticated body.
+    const model = resolveModel(aiModel)
     const seed = Math.random().toString(36).slice(2, 10)
 
     console.log('[Deck API] Generating', wanted, 'words about', theme, 'using', model)
