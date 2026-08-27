@@ -64,3 +64,55 @@ export async function saveRoomToStorage(room: Room): Promise<void> {
 }
 
 
+
+/**
+ * Record one answer without sending the whole room.
+ *
+ * The server merges it into rooms.responses, so two players answering at the
+ * same moment cannot overwrite each other. Returns the merged map, which is
+ * ahead of whatever this phone last synced.
+ */
+export async function saveAnswer(
+  code: string,
+  playerId: string,
+  answerIndex: number,
+  remaining: number,
+  round: number,
+): Promise<Record<string, { answerIndex: number; remaining: number }> | null> {
+  try {
+    const response = await fetch(`/api/rooms/${code}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId, answerIndex, remaining, round }),
+    })
+    if (!response.ok) return null
+    const body = await response.json()
+    return body.accepted ? body.responses : null
+  } catch (err) {
+    console.error('[💾 Storage] Failed to record answer:', err)
+    return null
+  }
+}
+
+/**
+ * Add this player to the lobby. The server appends, so simultaneous joins do
+ * not drop each other. Returns the full player list.
+ */
+export async function joinRoomOnServer(
+  code: string,
+  player: { id: string; name: string },
+): Promise<Array<{ id: string; name: string; score: number }> | null> {
+  try {
+    const response = await fetch(`/api/rooms/${code}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(player),
+    })
+    if (!response.ok) return null
+    const body = await response.json()
+    return body.players ?? null
+  } catch (err) {
+    console.error('[💾 Storage] Failed to join room:', err)
+    return null
+  }
+}

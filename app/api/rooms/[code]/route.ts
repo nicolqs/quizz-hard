@@ -97,7 +97,16 @@ export async function PUT(
         difficulty = EXCLUDED.difficulty,
         question_count = EXCLUDED.question_count,
         time_per_question = EXCLUDED.time_per_question,
-        players = EXCLUDED.players,
+        -- Keep anyone already in the lobby who is missing from this payload.
+        -- The host saves the room from the copy it last synced, so a player who
+        -- joined in the meantime would otherwise be dropped by a save that was
+        -- only meant to update scores. The payload still wins for players it
+        -- does carry, which is what makes score updates land.
+        players = EXCLUDED.players || (
+          SELECT COALESCE(jsonb_agg(existing), '[]'::jsonb)
+          FROM jsonb_array_elements(rooms.players) AS existing
+          WHERE NOT (EXCLUDED.players @> jsonb_build_array(jsonb_build_object('id', existing->'id')))
+        ),
         questions = EXCLUDED.questions,
         asked_questions = EXCLUDED.asked_questions,
         round = EXCLUDED.round,

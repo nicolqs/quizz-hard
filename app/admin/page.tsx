@@ -6,7 +6,7 @@ import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
 import { fetchQuestionsFromChatGPT } from '@/lib/questions'
-import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
+import { getRoomFromStorage, saveAnswer, saveRoomToStorage } from '@/lib/storage'
 import { aiModels, DEFAULT_AI_MODEL, difficultyPoints, emptyHeadsUpState, gameModes, ROUND_LENGTHS, themes, type Difficulty, type GameMode, type Player, type Room } from '@/lib/types'
 import { decks, getDeck, shuffleWords } from '@/lib/decks'
 import { advance as advanceShip, initialState as initialShip, MAX_HULL } from '@/lib/spaceteam'
@@ -440,15 +440,23 @@ export default function AdminPage() {
 
   const selectAnswer = (choiceIdx: number) => {
     if (!room || room.status !== 'question' || timeLeft <= 0 || !sessionPlayerId) return
-    const updated: Room = {
+
+    // Same merge path the players use. The host saving the whole room here was
+    // the worst offender: it carries every other field too, so a host answering
+    // mid-round overwrote the answers of everyone who had already tapped.
+    setRoom({
       ...room,
       responses: {
         ...room.responses,
         [sessionPlayerId]: { answerIndex: choiceIdx, remaining: timeLeft },
       },
-    }
-    setRoom(updated)
-    saveRoomToStorage(updated).catch(console.error)
+    })
+
+    saveAnswer(room.code, sessionPlayerId, choiceIdx, timeLeft, room.round ?? 0)
+      .then((merged) => {
+        if (merged) setRoom((prev) => (prev ? { ...prev, responses: merged } : prev))
+      })
+      .catch(console.error)
   }
 
   // Reset the room back to its lobby state while keeping the same room code (and players).
@@ -605,6 +613,9 @@ export default function AdminPage() {
   const sortedLeaderboard = room
     ? [...room.players].sort((a, b) => b.score - a.score)
     : []
+  const answeredCount = room
+    ? room.players.filter((p) => Boolean(room.responses[p.id])).length
+    : 0
 
   const playerResult = useMemo(() => {
     if (!sessionPlayerId || !room || !currentQuestion) return null
@@ -1292,22 +1303,38 @@ export default function AdminPage() {
             </SectionCard>
 
             {/* Live Leaderboard at Bottom During Questions */}
-            <SectionCard title="Live standings" accent="from-secondary/20 to-primary/20">
+            <SectionCard
+              title={`Live standings - ${answeredCount}/${room.players.length} answered`}
+              accent="from-secondary/20 to-primary/20"
+            >
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                {sortedLeaderboard.map((p, idx) => (
-                  <div
-                    key={p.id}
-                    className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-2 ${
-                      idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-white/50">#{idx + 1}</span>
-                      <span className="font-semibold text-sm">{p.name}</span>
+                {sortedLeaderboard.map((p, idx) => {
+                  // Who has locked something in. The pick itself stays hidden
+                  // until the round closes - this is only "are we still waiting".
+                  const answered = Boolean(room.responses[p.id])
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center justify-between rounded-xl border px-4 py-2 ${
+                        answered
+                          ? 'border-secondary/40 bg-secondary/10'
+                          : 'border-white/5 bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-white/50">#{idx + 1}</span>
+                        <span className="text-sm font-semibold">{p.name}</span>
+                        <span
+                          className={`text-sm ${answered ? 'text-secondary' : 'text-white/40'}`}
+                          title={answered ? 'Answered' : 'Still thinking'}
+                        >
+                          {answered ? '✓' : '…'}
+                        </span>
+                      </div>
+                      <div className="text-sm font-semibold">{p.score} pts</div>
                     </div>
-                    <div className="text-sm font-semibold">{p.score} pts</div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </SectionCard>
           </>
@@ -1341,20 +1368,33 @@ export default function AdminPage() {
               <div className="space-y-3">
                 <h3 className="text-xl font-semibold">Leaderboard</h3>
                 <div className="grid gap-2">
-                  {sortedLeaderboard.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-3 ${
-                        idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-white/50">#{idx + 1}</span>
-                        <span className="font-semibold">{p.name}</span>
+                  {sortedLeaderboard.map((p, idx) => {
+                    // What this player did on the round just scored, so the host
+                    // can see who got it - not just the running totals.
+                    const gain = room.lastGain[p.id] ?? 0
+                    const answered = Boolean(room.responses[p.id])
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-3 ${
+                          idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-white/50">#{idx + 1}</span>
+                          <span className="font-semibold">{p.name}</span>
+                          <span
+                            className={`text-sm font-semibold ${
+                              gain > 0 ? 'text-secondary' : 'text-white/40'
+                            }`}
+                          >
+                            {gain > 0 ? `+${gain}` : answered ? 'wrong' : 'no answer'}
+                          </span>
+                        </div>
+                        <div className="text-sm font-semibold">{p.score} pts</div>
                       </div>
-                      <div className="text-sm font-semibold">{p.score} pts</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {room.status === 'final' && (

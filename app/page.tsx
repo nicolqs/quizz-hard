@@ -4,7 +4,7 @@ import { GenerationProgress } from '@/components/GenerationProgress'
 import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
-import { getRoomFromStorage, saveRoomToStorage } from '@/lib/storage'
+import { getRoomFromStorage, joinRoomOnServer, saveAnswer, saveRoomToStorage } from '@/lib/storage'
 import { difficultyPoints, type Player, type Room } from '@/lib/types'
 import { HeadsUpCard } from '@/components/HeadsUpCard'
 import { Panel } from '@/components/spaceteam/Panel'
@@ -203,14 +203,23 @@ function PlayerPageContent() {
     
     console.log('[🟢 PLAYER] Adding player:', player.name)
     
+    // Append server-side. Building the list locally meant two people tapping
+    // Join together each sent a list that did not know about the other, and one
+    // of them silently never appeared in the host's lobby.
+    const players = await joinRoomOnServer(foundRoom.code, { id: player.id, name: player.name })
+
     const updatedRoom: Room = {
       ...foundRoom,
-      players: [...foundRoom.players, player],
+      players: players ?? [...foundRoom.players, player],
       responses: { ...foundRoom.responses },
     }
-    
-    console.log('[🟢 PLAYER] 💾 Saving room with', updatedRoom.players.length, 'players')
-    await saveRoomToStorage(updatedRoom)
+
+    if (!players) {
+      // No server (or the room only exists in this browser). Fall back to the
+      // old whole-room save so single-device play still works.
+      console.warn('[🟢 PLAYER] Join endpoint unavailable, saving whole room')
+      await saveRoomToStorage(updatedRoom)
+    }
     
     console.log('[🟢 PLAYER] ✅ Joined successfully!')
     setRoom(updatedRoom)
@@ -220,15 +229,20 @@ function PlayerPageContent() {
 
   const selectAnswer = async (choiceIdx: number) => {
     if (!room || room.status !== 'question' || timeLeft <= 0 || !sessionPlayerId) return
-    const updated: Room = {
+
+    // Show the pick straight away, then let the server merge it. Sending the
+    // whole room here used to wipe out anyone who answered a moment earlier.
+    setRoom({
       ...room,
       responses: {
         ...room.responses,
         [sessionPlayerId]: { answerIndex: choiceIdx, remaining: timeLeft },
       },
-    }
-    setRoom(updated)
-    await saveRoomToStorage(updated)
+    })
+
+    const merged = await saveAnswer(room.code, sessionPlayerId, choiceIdx, timeLeft, room.round ?? 0)
+    // The merged map includes answers this phone had not seen yet.
+    if (merged) setRoom((prev) => (prev ? { ...prev, responses: merged } : prev))
   }
 
   const inLobby = room && room.status === 'lobby'
@@ -591,20 +605,38 @@ function PlayerPageContent() {
               <div className="space-y-3">
                 <h3 className="text-xl font-semibold">Leaderboard</h3>
                 <div className="grid gap-2">
-                  {sortedLeaderboard.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-3 ${
-                        idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-white/50">#{idx + 1}</span>
-                        <span className="font-semibold">{p.name}</span>
+                  {sortedLeaderboard.map((p, idx) => {
+                    // What everyone scored on the round just played, not only
+                    // the running total - otherwise a good answer is invisible.
+                    const gain = room.lastGain?.[p.id] ?? 0
+                    const answered = Boolean(room.responses[p.id])
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center justify-between rounded-xl border border-white/5 px-4 py-3 ${
+                          idx === 0 ? 'bg-gradient-to-r from-secondary/20 to-primary/20' : 'bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-white/50">#{idx + 1}</span>
+                          <span className="font-semibold">
+                            {p.name}
+                            {p.id === sessionPlayerId && (
+                              <span className="ml-1 text-xs text-white/50">(you)</span>
+                            )}
+                          </span>
+                          <span
+                            className={`text-sm font-semibold ${
+                              gain > 0 ? 'text-secondary' : 'text-white/40'
+                            }`}
+                          >
+                            {gain > 0 ? `+${gain}` : answered ? 'wrong' : 'no answer'}
+                          </span>
+                        </div>
+                        <div className="text-sm font-semibold">{p.score} pts</div>
                       </div>
-                      <div className="text-sm font-semibold">{p.score} pts</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>
