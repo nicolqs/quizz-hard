@@ -1,11 +1,16 @@
 'use client'
 
+import { GenerationProgress } from '@/components/GenerationProgress'
+
 interface LoadingSpinnerProps {
   message?: string
   subMessage?: string
+  /** Show a timed progress bar. Hosts waiting on AI generation had only the
+   *  bouncing dots, which say "busy" but never "how much longer". */
+  progressMs?: number
 }
 
-export function LoadingSpinner({ message = 'Loading...', subMessage }: LoadingSpinnerProps) {
+export function LoadingSpinner({ message = 'Loading...', subMessage, progressMs }: LoadingSpinnerProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-6 py-12">
       {/* Animated spinner */}
@@ -28,12 +33,18 @@ export function LoadingSpinner({ message = 'Loading...', subMessage }: LoadingSp
         )}
       </div>
 
-      {/* Progress dots */}
-      <div className="flex gap-2">
-        <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }}></div>
-        <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }}></div>
-        <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }}></div>
-      </div>
+      {progressMs ? (
+        <div className="w-full max-w-md px-2">
+          <GenerationProgress durationMs={progressMs} />
+        </div>
+      ) : (
+        /* Progress dots */
+        <div className="flex gap-2">
+          <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }}></div>
+          <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }}></div>
+          <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }}></div>
+        </div>
+      )}
     </div>
   )
 }

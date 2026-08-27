@@ -1,5 +1,6 @@
 'use client'
 
+import { GenerationProgress } from '@/components/GenerationProgress'
 import { SectionCard } from '@/components/SectionCard'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { subscribeToRoom } from '@/lib/api'
@@ -34,7 +35,6 @@ function PlayerPageContent() {
   const [timeLeft, setTimeLeft] = useState(0)
   const [sessionPlayerId, setSessionPlayerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loadingProgress, setLoadingProgress] = useState(0)
   
   const sessionPlayerIdRef = useRef<string | null>(null)
   sessionPlayerIdRef.current = sessionPlayerId
@@ -150,31 +150,6 @@ function PlayerPageContent() {
     onGot: () => decide(true),
     onPass: () => decide(false),
   })
-
-  // Loading progress bar animation (10 seconds)
-  useEffect(() => {
-    if (room?.status === 'generating') {
-      console.log('[🟢 PLAYER] 📊 Starting progress bar animation!')
-      setLoadingProgress(0)
-      const startTime = Date.now()
-      const duration = 10000 // 10 seconds
-      
-      const ticker = setInterval(() => {
-        const elapsed = Date.now() - startTime
-        const progress = Math.min((elapsed / duration) * 100, 100)
-        setLoadingProgress(progress)
-        console.log('[🟢 PLAYER] Progress:', Math.round(progress) + '%')
-        
-        if (progress >= 100) {
-          clearInterval(ticker)
-        }
-      }, 100) // Update every 100ms for smooth animation
-      
-      return () => clearInterval(ticker)
-    } else {
-      setLoadingProgress(0)
-    }
-  }, [room?.status])
 
   const joinRoom = async () => {
     console.log('[🟢 PLAYER] 🚪 Attempting to join room...')
@@ -371,13 +346,6 @@ function PlayerPageContent() {
           </SectionCard>
         )}
 
-        {/* DEBUG: Show room status */}
-        {room && (
-          <div className="fixed bottom-4 right-4 bg-black/80 text-white p-2 rounded text-xs">
-            Status: {room.status} | Progress: {Math.round(loadingProgress)}%
-          </div>
-        )}
-
         {/* Generating Questions View */}
 
         {room && inGenerating && (
@@ -392,19 +360,9 @@ function PlayerPageContent() {
                 </p>
               </div>
 
-              {/* Progress Bar */}
-              <div className="space-y-2">
-                <div className="h-6 w-full rounded-full bg-white/10 overflow-hidden border-2 border-primary/30">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary via-secondary to-primary bg-[length:200%_100%] animate-gradient transition-all duration-300 ease-out"
-                    style={{ width: `${loadingProgress}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-lg font-bold text-primary">
-                  <span>Generating...</span>
-                  <span>{Math.round(loadingProgress)}%</span>
-                </div>
-              </div>
+              {/* Progress Bar - same component the host sees, so the two
+                  cannot drift on timing or on what 100% means. */}
+              <GenerationProgress durationMs={10000} active={Boolean(inGenerating)} />
 
               <div className="text-center space-y-1">
                 <p className="text-lg font-semibold text-white/80 light:text-black/80">✨ Takes about 10 seconds</p>

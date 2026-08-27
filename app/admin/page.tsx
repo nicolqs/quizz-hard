@@ -1074,13 +1074,13 @@ export default function AdminPage() {
         {/* Generating Questions View */}
         {room && inGenerating && (
           <SectionCard title="🤖 AI Working..." accent="from-primary/30 to-secondary/30">
-            <LoadingSpinner 
+            <LoadingSpinner
               message="Summoning AI questions…"
               subMessage={`Generating ${room.questionCount} ${room.difficulty} questions about ${room.generatedTheme || room.theme}`}
+              progressMs={10000}
             />
             <div className="mt-4 text-center">
-              <p className="text-sm text-white/60 light:text-black/60">⏱️ Takes about ~10 seconds</p>
-              <p className="text-xs text-white/50 light:text-black/50 mt-1">Your players see this too!</p>
+              <p className="text-xs text-white/50 light:text-black/50">Your players see this too!</p>
             </div>
           </SectionCard>
         )}

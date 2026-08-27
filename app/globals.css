@@ -12,7 +12,6 @@
   body {
     @apply text-slate-50;
     background: radial-gradient(circle at top, #0e7490, #0f172a 45%, #020617);
-    background-attachment: fixed;
     min-height: 100vh;
     /* dvh tracks the address bar as it hides and shows, so the gradient no
        longer jumps a bar's height mid-scroll. Declared after the vh fallback. */
